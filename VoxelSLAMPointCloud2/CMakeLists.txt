@@ -5,11 +5,19 @@ if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
 endif()
 
+find_package(ament_cmake REQUIRED)
+
+# Skip build if rviz_common is not available (headless environment)
+find_package(rviz_common QUIET)
+if(NOT rviz_common_FOUND)
+  message(STATUS "rviz_common not found - skipping ${PROJECT_NAME} (RViz plugin)")
+  ament_package()
+  return()
+endif()
+
 set(CMAKE_AUTOMOC ON)
 
-find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
-find_package(rviz_common REQUIRED)
 find_package(rviz_rendering REQUIRED)
 find_package(rviz_default_plugins REQUIRED)
 find_package(sensor_msgs REQUIRED)
