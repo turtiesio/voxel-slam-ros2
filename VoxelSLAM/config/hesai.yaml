@@ -2,6 +2,7 @@
   ros__parameters:
     General.lid_topic: "/hesai/pandar"
     General.imu_topic: "/alphasense/imu"
+    General.imu_in_g_unit: false  # IMU outputs in m/s²
     # The file path of the map to be saved
     General.save_path: "/home/zale/save_datas/hilti_multi/"
     # The offline map in the save_path to be loaded

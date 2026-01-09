@@ -2,6 +2,7 @@
   ros__parameters:
     General.lid_topic: "/os1_cloud_node/points"
     General.imu_topic: "/os1_cloud_node/imu"
+    General.imu_in_g_unit: false  # IMU outputs in m/s²
     General.save_path: "/media/zale/T7/newcollege/"
     General.previous_map: ""
     General.bagname: "long"

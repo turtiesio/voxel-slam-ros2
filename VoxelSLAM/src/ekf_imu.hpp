@@ -38,6 +38,7 @@ public:
   double scale_gravity = 1.0;
   vector<IMUST> imu_poses;
   string imu_topic = "/livox/imu";
+  bool imu_in_g_unit = false;  // true: IMU outputs in g (e.g. Livox), false: m/s²
 
   int point_notime = 0;
 
@@ -210,8 +211,13 @@ public:
     if(!init_flag)
     {
       IMU_init(imus);
-      if(mean_acc.norm() < 2 && imu_topic == "/livox/imu")
-        scale_gravity = G_m_s2;
+      // Original code (hardcoded topic name breaks remapping):
+      // if(mean_acc.norm() < 2 && imu_topic == "/livox/imu")
+      //   scale_gravity = G_m_s2;
+      //
+      // Fixed: Use explicit parameter instead of topic name or auto-detection.
+      // Set General.imu_in_g_unit in yaml config.
+      scale_gravity = imu_in_g_unit ? G_m_s2 : 1.0;
       printf("scale_gravity: %lf %lf %d\n", scale_gravity, mean_acc.norm(), init_num);
       x_curr.g = -mean_acc * scale_gravity;
       if(init_num > min_init_num) init_flag = true;

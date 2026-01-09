@@ -793,6 +793,7 @@ public:
     node->declare_parameter("General.extrinsic_tran", vector<double>());
     node->declare_parameter("General.extrinsic_rota", vector<double>());
     node->declare_parameter("General.is_save_map", 0);
+    node->declare_parameter("General.imu_in_g_unit", false);  // true if IMU outputs in g unit (e.g. Livox)
 
     lid_topic = node->get_parameter("General.lid_topic").as_string();
     imu_topic = node->get_parameter("General.imu_topic").as_string();
@@ -817,6 +818,7 @@ public:
         lid_topic, rclcpp::QoS(1000),
         [](sensor_msgs::msg::PointCloud2::SharedPtr msg) { pcl_handler(msg); });
     odom_ekf.imu_topic = imu_topic;
+    odom_ekf.imu_in_g_unit = node->get_parameter("General.imu_in_g_unit").as_bool();
 
     node->declare_parameter("Odometry.cov_gyr", 0.1);
     node->declare_parameter("Odometry.cov_acc", 0.1);

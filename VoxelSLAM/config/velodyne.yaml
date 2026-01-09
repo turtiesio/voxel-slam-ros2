@@ -2,6 +2,7 @@
   ros__parameters:
     General.lid_topic: "/velodyne_points"
     General.imu_topic: "/imu/data"
+    General.imu_in_g_unit: false  # IMU outputs in m/s²
     General.save_path: "/home/zale/save_datas/urbannav/"
     General.previous_map: ""
     General.bagname: "medium1"
