@@ -8,7 +8,14 @@
 #include <unordered_set>
 #include <mutex>
 
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
+#include <chrono>
+
+// Helper function for timing
+inline double get_time_sec() {
+  return std::chrono::duration<double>(
+    std::chrono::steady_clock::now().time_since_epoch()).count();
+}
 #include <fstream>
 
 struct pointVar 
@@ -381,7 +388,7 @@ public:
 
     bool is_converge = true;
 
-    // double tt1 = ros::Time::now().toSec();
+    // double tt1 = get_time_sec();
     // for(int i=0; i<10; i++)
     for(int i=0; i<max_iter; i++)
     {
@@ -582,9 +589,9 @@ public:
     {
       if(is_calc_hess)
       {
-        double tm = ros::Time::now().toSec();
+        double tm = get_time_sec();
         residual1 = divide_thread(x_stats, voxhess, imus_factor, Hess, JacT);
-        hesstime += ros::Time::now().toSec() - tm;
+        hesstime += get_time_sec() - tm;
         *hess = Hess;
       }
       
@@ -610,9 +617,9 @@ public:
 
       double q1 = 0.5 * dxi.dot(u*D*dxi-JacT);
 
-      double tl1 = ros::Time::now().toSec();
+      double tl1 = get_time_sec();
       residual2 = only_residual(x_stats_temp, voxhess, imus_factor);
-      double tl2 = ros::Time::now().toSec();
+      double tl2 = get_time_sec();
       // printf("onlyresi: %lf\n", tl2-tl1);
       resitime += tl2 - tl1;
 

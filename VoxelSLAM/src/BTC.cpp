@@ -1,6 +1,6 @@
 #include "BTC.h"
 
-void read_parameters(ros::NodeHandle &nh, ConfigSetting &config_setting, int isHighFly)
+void read_parameters(rclcpp::Node::SharedPtr node, ConfigSetting &config_setting, int isHighFly)
 {
   if(!isHighFly)
   {

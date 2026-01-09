@@ -2,6 +2,13 @@
 
 using namespace std;
 
+// Global variables for ROS 2
+rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_scan, pub_cmap, pub_init, pub_pmap;
+rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_test, pub_prev_path, pub_curr_path;
+std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster;
+rclcpp::Node::SharedPtr g_node;
+std::atomic<bool> g_is_finish{false};
+
 class ResultOutput
 {
 public:
@@ -13,20 +20,23 @@ public:
 
   void pub_odom_func(IMUST &xc)
   {
+    if (!tf_broadcaster || !g_node) return;
+
     Eigen::Quaterniond q_this(xc.R);
     Eigen::Vector3d t_this = xc.p;
 
-    static tf::TransformBroadcaster br;
-    tf::Transform transform;
-    tf::Quaternion q;
-    transform.setOrigin(tf::Vector3(t_this.x(), t_this.y(), t_this.z()));
-    q.setW(q_this.w());
-    q.setX(q_this.x());
-    q.setY(q_this.y());
-    q.setZ(q_this.z());
-    transform.setRotation(q);
-    ros::Time ct = ros::Time::now();
-    br.sendTransform(tf::StampedTransform(transform, ct, "/camera_init", "/aft_mapped"));
+    geometry_msgs::msg::TransformStamped transform;
+    transform.header.stamp = g_node->now();
+    transform.header.frame_id = "camera_init";
+    transform.child_frame_id = "aft_mapped";
+    transform.transform.translation.x = t_this.x();
+    transform.transform.translation.y = t_this.y();
+    transform.transform.translation.z = t_this.z();
+    transform.transform.rotation.w = q_this.w();
+    transform.transform.rotation.x = q_this.x();
+    transform.transform.rotation.y = q_this.y();
+    transform.transform.rotation.z = q_this.z();
+    tf_broadcaster->sendTransform(transform);
   }
 
   void pub_localtraj(PLV(3) &pwld, double jour, IMUST &x_curr, int cur_session, pcl::PointCloud<PointType> &pcl_path)
@@ -87,7 +97,7 @@ public:
     pub_pl_func(pcl_send, pub_cmap);
   }
 
-  void pub_global_path(vector<vector<ScanPose*>*> &relc_bl_buf, ros::Publisher &pub_relc, vector<int> &ids)
+  void pub_global_path(vector<vector<ScanPose*>*> &relc_bl_buf, rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr &pub_relc, vector<int> &ids)
   {
     pcl::PointCloud<pcl::PointXYZI> pl;
     pcl::PointXYZI pp;
@@ -105,7 +115,7 @@ public:
     pub_pl_func(pl, pub_relc);
   }
 
-  void pub_globalmap(vector<vector<Keyframe*>*> &relc_submaps, vector<int> &ids, ros::Publisher &pub)
+  void pub_globalmap(vector<vector<Keyframe*>*> &relc_submaps, vector<int> &ids, rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr &pub)
   {
     pcl::PointCloud<pcl::PointXYZI> pl;
     pub_pl_func(pl, pub);
@@ -275,10 +285,11 @@ public:
   }
 
   // loading the offline map
-  void previous_map_names(ros::NodeHandle &n, vector<string> &fnames, vector<double> &juds)
+  void previous_map_names(rclcpp::Node::SharedPtr node, vector<string> &fnames, vector<double> &juds)
   {
     string premap;
-    n.param<string>("General/previous_map", premap, "");
+    node->declare_parameter("General.previous_map", "");
+    premap = node->get_parameter("General.previous_map").as_string();
     premap.erase(remove_if(premap.begin(), premap.end(), ::isspace), premap.end());
     stringstream ss(premap);
     string str;
@@ -304,13 +315,15 @@ public:
 
   }
 
-  void previous_map_read(vector<STDescManager*> &std_managers, vector<vector<ScanPose*>*> &multimap_scanPoses, vector<vector<Keyframe*>*> &multimap_keyframes, ConfigSetting &config_setting, PGO_Edges &edges, ros::NodeHandle &n, vector<string> &fnames, vector<double> &juds, string &savepath, int win_size)
+  void previous_map_read(vector<STDescManager*> &std_managers, vector<vector<ScanPose*>*> &multimap_scanPoses, vector<vector<Keyframe*>*> &multimap_keyframes, ConfigSetting &config_setting, PGO_Edges &edges, rclcpp::Node::SharedPtr node, vector<string> &fnames, vector<double> &juds, string &savepath, int win_size)
   {
     int acsize = 10; int mgsize = 5;
-    n.param<int>("Loop/acsize", acsize, 10);
-    n.param<int>("Loop/mgsize", mgsize, 5);
+    node->declare_parameter("Loop.acsize", 10);
+    node->declare_parameter("Loop.mgsize", 5);
+    acsize = node->get_parameter("Loop.acsize").as_int();
+    mgsize = node->get_parameter("Loop.mgsize").as_int();
 
-    for(int fn=0; fn<fnames.size() && n.ok(); fn++)
+    for(int fn=0; fn<fnames.size() && rclcpp::ok(); fn++)
     {
       string fname = savepath + fnames[fn];
       vector<ScanPose*>* bl_tem = new vector<ScanPose*>();
@@ -328,7 +341,7 @@ public:
       pcl::PointCloud<PointType> pl_lc;
       pcl::PointCloud<pcl::PointXYZI>::Ptr pl_btc(new pcl::PointCloud<pcl::PointXYZI>());
 
-      for(int i=0; i<bl_tem->size() && n.ok(); i++)
+      for(int i=0; i<bl_tem->size() && rclcpp::ok(); i++)
       {
         IMUST &xc = bl_tem->at(i)->x;
         string pcdname = fname + "/" + to_string(i) + ".pcd";
@@ -374,7 +387,7 @@ public:
       cout << "Generating BTC descriptors..." << "\n";
 
       int subsize = keyframes_tem->size();
-      for(int i=0; i+acsize<subsize && n.ok(); i+=mgsize)
+      for(int i=0; i+acsize<subsize && rclcpp::ok(); i+=mgsize)
       {
         int up = i + acsize;
         pl_btc->clear();
@@ -404,7 +417,7 @@ public:
     }
 
     vector<int> ids_all;
-    for(int fn=0; fn<fnames.size() && n.ok(); fn++)
+    for(int fn=0; fn<fnames.size() && rclcpp::ok(); fn++)
       ids_all.push_back(fn);
 
     // gtsam::Values initial;
@@ -485,7 +498,7 @@ public:
 
   }
 
-  void motion_blur(pcl::PointCloud<PointType> &pl, PVec &pvec, IMUST xc, IMUST xl, deque<sensor_msgs::Imu::Ptr> &imus, double pcl_beg_time, IMUST &extrin_para)
+  void motion_blur(pcl::PointCloud<PointType> &pl, PVec &pvec, IMUST xc, IMUST xl, deque<sensor_msgs::msg::Imu::SharedPtr> &imus, double pcl_beg_time, IMUST &extrin_para)
   {
     xc.bg = xl.bg; xc.ba = xl.ba;
     Eigen::Vector3d acc_imu, angvel_avr, acc_avr, vel_imu(xc.v), pos_imu(xc.p);
@@ -494,8 +507,8 @@ public:
 
     for(auto it_imu=imus.end()-1; it_imu!=imus.begin(); it_imu--)
     {
-      sensor_msgs::Imu &head = **(it_imu-1);
-      sensor_msgs::Imu &tail = **(it_imu); 
+      sensor_msgs::msg::Imu &head = **(it_imu-1);
+      sensor_msgs::msg::Imu &tail = **(it_imu); 
       
       angvel_avr << 0.5*(head.angular_velocity.x + tail.angular_velocity.x), 
                     0.5*(head.angular_velocity.y + tail.angular_velocity.y), 
@@ -507,7 +520,7 @@ public:
       angvel_avr -= xc.bg;
       acc_avr = acc_avr * imupre_scale_gravity - xc.ba;
 
-      double dt = head.header.stamp.toSec() - tail.header.stamp.toSec();
+      double dt = imuToSec(head.header.stamp) - imuToSec(tail.header.stamp);
       Eigen::Matrix3d acc_avr_skew = hat(acc_avr);
       Eigen::Matrix3d Exp_f = Exp(angvel_avr, dt);
 
@@ -516,7 +529,7 @@ public:
       vel_imu = vel_imu + acc_imu * dt;
       R_imu = R_imu * Exp_f;
 
-      double offt = head.header.stamp.toSec() - pcl_beg_time;
+      double offt = imuToSec(head.header.stamp) - pcl_beg_time;
       imu_poses.emplace_back(offt, R_imu, pos_imu, vel_imu, angvel_avr, acc_imu);
     }
 
@@ -560,7 +573,7 @@ public:
     }
   }
 
-  int motion_init(vector<pcl::PointCloud<PointType>::Ptr> &pl_origs, vector<deque<sensor_msgs::Imu::Ptr>> &vec_imus, vector<double> &beg_times, Eigen::MatrixXd *hess, LidarFactor &voxhess, vector<IMUST> &x_buf, unordered_map<VOXEL_LOC, OctoTree*> &surf_map, unordered_map<VOXEL_LOC, OctoTree*> &surf_map_slide, vector<PVecPtr> &pvec_buf, int win_size, vector<vector<SlideWindow*>> &sws, IMUST &x_curr, deque<IMU_PRE*> &imu_pre_buf, IMUST &extrin_para)
+  int motion_init(vector<pcl::PointCloud<PointType>::Ptr> &pl_origs, vector<deque<sensor_msgs::msg::Imu::SharedPtr>> &vec_imus, vector<double> &beg_times, Eigen::MatrixXd *hess, LidarFactor &voxhess, vector<IMUST> &x_buf, unordered_map<VOXEL_LOC, OctoTree*> &surf_map, unordered_map<VOXEL_LOC, OctoTree*> &surf_map_slide, vector<PVecPtr> &pvec_buf, int win_size, vector<vector<SlideWindow*>> &sws, IMUST &x_curr, deque<IMU_PRE*> &imu_pre_buf, IMUST &extrin_para)
   {
     PLV(3) pwld;
     double last_g_norm = x_buf[0].g.norm();
@@ -573,7 +586,7 @@ public:
     for(double &iter: plane_eigen_value_thre)
       iter = 1.0 / 4;
 
-    double t0 = ros::Time::now().toSec();
+    double t0 = now_sec();
     double converge_thre = 0.05;
     int converge_times = 0;
     bool is_degrade = true;
@@ -695,7 +708,7 @@ public:
     acc *= 9.8;
 
     pl_origs.clear(); vec_imus.clear(); beg_times.clear();
-    double t1 = ros::Time::now().toSec();
+    double t1 = now_sec();
     printf("init time: %lf\n", t1 - t0);
 
     // align_gravity(x_buf);
@@ -759,43 +772,75 @@ public:
   string bagname, savepath;
   int is_save_map;
 
-  VOXEL_SLAM(ros::NodeHandle &n)
+  rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_imu;
+  rclcpp::SubscriptionBase::SharedPtr sub_pcl;
+
+  VOXEL_SLAM(rclcpp::Node::SharedPtr node)
   {
     double cov_gyr, cov_acc, rand_walk_gyr, rand_walk_acc;
     vector<double> vecR(9), vecT(3);
     scanPoses = new vector<ScanPose*>();
     keyframes = new vector<Keyframe*>();
-    
-    string lid_topic, imu_topic;
-    n.param<string>("General/lid_topic", lid_topic, "/livox/lidar");
-    n.param<string>("General/imu_topic", imu_topic, "/livox/imu");
-    n.param<string>("General/bagname", bagname, "site3_handheld_4");
-    n.param<string>("General/save_path", savepath, "");
-    n.param<int>("General/lidar_type", feat.lidar_type, 0);
-    n.param<double>("General/blind", feat.blind, 0.1);
-    n.param<int>("General/point_filter_num", feat.point_filter_num, 3);
-    n.param<vector<double>>("General/extrinsic_tran", vecT, vector<double>());
-    n.param<vector<double>>("General/extrinsic_rota", vecR, vector<double>());
-    n.param<int>("General/is_save_map", is_save_map, 0);
 
-    sub_imu = n.subscribe(imu_topic, 80000, imu_handler);
+    string lid_topic, imu_topic;
+    node->declare_parameter("General.lid_topic", "/livox/lidar");
+    node->declare_parameter("General.imu_topic", "/livox/imu");
+    node->declare_parameter("General.bagname", "site3_handheld_4");
+    node->declare_parameter("General.save_path", "");
+    node->declare_parameter("General.lidar_type", 0);
+    node->declare_parameter("General.blind", 0.1);
+    node->declare_parameter("General.point_filter_num", 3);
+    node->declare_parameter("General.extrinsic_tran", vector<double>());
+    node->declare_parameter("General.extrinsic_rota", vector<double>());
+    node->declare_parameter("General.is_save_map", 0);
+
+    lid_topic = node->get_parameter("General.lid_topic").as_string();
+    imu_topic = node->get_parameter("General.imu_topic").as_string();
+    bagname = node->get_parameter("General.bagname").as_string();
+    savepath = node->get_parameter("General.save_path").as_string();
+    feat.lidar_type = node->get_parameter("General.lidar_type").as_int();
+    feat.blind = node->get_parameter("General.blind").as_double();
+    feat.point_filter_num = node->get_parameter("General.point_filter_num").as_int();
+    vecT = node->get_parameter("General.extrinsic_tran").as_double_array();
+    vecR = node->get_parameter("General.extrinsic_rota").as_double_array();
+    is_save_map = node->get_parameter("General.is_save_map").as_int();
+
+    sub_imu = node->create_subscription<sensor_msgs::msg::Imu>(
+      imu_topic, rclcpp::QoS(80000),
+      [](sensor_msgs::msg::Imu::SharedPtr msg) { imu_handler(msg); });
     if(feat.lidar_type == LIVOX)
-      sub_pcl = n.subscribe<livox_ros_driver::CustomMsg>(lid_topic, 1000, pcl_handler);
+      sub_pcl = node->create_subscription<livox_ros_driver2::msg::CustomMsg>(
+        lid_topic, rclcpp::QoS(1000),
+        [](livox_ros_driver2::msg::CustomMsg::SharedPtr msg) { pcl_handler(msg); });
     else
-      sub_pcl = n.subscribe<sensor_msgs::PointCloud2>(lid_topic, 1000, pcl_handler);
+      sub_pcl = node->create_subscription<sensor_msgs::msg::PointCloud2>(
+        lid_topic, rclcpp::QoS(1000),
+        [](sensor_msgs::msg::PointCloud2::SharedPtr msg) { pcl_handler(msg); });
     odom_ekf.imu_topic = imu_topic;
 
-    n.param<double>("Odometry/cov_gyr", cov_gyr, 0.1);
-    n.param<double>("Odometry/cov_acc", cov_acc, 0.1);
-    n.param<double>("Odometry/rdw_gyr", rand_walk_gyr, 1e-4);
-    n.param<double>("Odometry/rdw_acc", rand_walk_acc, 1e-4);
-    n.param<double>("Odometry/down_size", down_size, 0.1);
-    n.param<double>("Odometry/dept_err", dept_err, 0.02);
-    n.param<double>("Odometry/beam_err", beam_err, 0.05);
-    n.param<double>("Odometry/voxel_size", voxel_size, 1);
-    n.param<double>("Odometry/min_eigen_value", min_eigen_value, 0.0025);
-    n.param<int>("Odometry/degrade_bound", degrade_bound, 10);
-    n.param<int>("Odometry/point_notime", point_notime, 0);
+    node->declare_parameter("Odometry.cov_gyr", 0.1);
+    node->declare_parameter("Odometry.cov_acc", 0.1);
+    node->declare_parameter("Odometry.rdw_gyr", 1e-4);
+    node->declare_parameter("Odometry.rdw_acc", 1e-4);
+    node->declare_parameter("Odometry.down_size", 0.1);
+    node->declare_parameter("Odometry.dept_err", 0.02);
+    node->declare_parameter("Odometry.beam_err", 0.05);
+    node->declare_parameter("Odometry.voxel_size", 1.0);
+    node->declare_parameter("Odometry.min_eigen_value", 0.0025);
+    node->declare_parameter("Odometry.degrade_bound", 10);
+    node->declare_parameter("Odometry.point_notime", 0);
+
+    cov_gyr = node->get_parameter("Odometry.cov_gyr").as_double();
+    cov_acc = node->get_parameter("Odometry.cov_acc").as_double();
+    rand_walk_gyr = node->get_parameter("Odometry.rdw_gyr").as_double();
+    rand_walk_acc = node->get_parameter("Odometry.rdw_acc").as_double();
+    down_size = node->get_parameter("Odometry.down_size").as_double();
+    dept_err = node->get_parameter("Odometry.dept_err").as_double();
+    beam_err = node->get_parameter("Odometry.beam_err").as_double();
+    voxel_size = node->get_parameter("Odometry.voxel_size").as_double();
+    min_eigen_value = node->get_parameter("Odometry.min_eigen_value").as_double();
+    degrade_bound = node->get_parameter("Odometry.degrade_bound").as_int();
+    point_notime = node->get_parameter("Odometry.point_notime").as_int();
     odom_ekf.point_notime = point_notime;
 
     feat.blind = feat.blind * feat.blind;
@@ -806,21 +851,32 @@ public:
     odom_ekf.Lid_offset_to_IMU  << vecT[0], vecT[1], vecT[2];
     odom_ekf.Lid_rot_to_IMU << vecR[0], vecR[1], vecR[2],
                             vecR[3], vecR[4], vecR[5],
-                            vecR[6], vecR[7], vecR[8];                
+                            vecR[6], vecR[7], vecR[8];
     extrin_para.R = odom_ekf.Lid_rot_to_IMU;
     extrin_para.p = odom_ekf.Lid_offset_to_IMU;
     min_point << 5, 5, 5, 5;
 
-    n.param<int>("LocalBA/win_size", win_size, 10);
-    n.param<int>("LocalBA/max_layer", max_layer, 2);
-    n.param<double>("LocalBA/cov_gyr", cov_gyr, 0.1);
-    n.param<double>("LocalBA/cov_acc", cov_acc, 0.1);
-    n.param<double>("LocalBA/rdw_gyr", rand_walk_gyr, 1e-4);
-    n.param<double>("LocalBA/rdw_acc", rand_walk_acc, 1e-4);
-    n.param<int>("LocalBA/min_ba_point", min_ba_point, 20);
-    n.param<vector<double>>("LocalBA/plane_eigen_value_thre", plane_eigen_value_thre, vector<double>({1, 1, 1, 1}));
-    n.param<double>("LocalBA/imu_coef", imu_coef, 1e-4);
-    n.param<int>("LocalBA/thread_num", thread_num, 5);
+    node->declare_parameter("LocalBA.win_size", 10);
+    node->declare_parameter("LocalBA.max_layer", 2);
+    node->declare_parameter("LocalBA.cov_gyr", 0.1);
+    node->declare_parameter("LocalBA.cov_acc", 0.1);
+    node->declare_parameter("LocalBA.rdw_gyr", 1e-4);
+    node->declare_parameter("LocalBA.rdw_acc", 1e-4);
+    node->declare_parameter("LocalBA.min_ba_point", 20);
+    node->declare_parameter("LocalBA.plane_eigen_value_thre", vector<double>({1, 1, 1, 1}));
+    node->declare_parameter("LocalBA.imu_coef", 1e-4);
+    node->declare_parameter("LocalBA.thread_num", 5);
+
+    win_size = node->get_parameter("LocalBA.win_size").as_int();
+    max_layer = node->get_parameter("LocalBA.max_layer").as_int();
+    cov_gyr = node->get_parameter("LocalBA.cov_gyr").as_double();
+    cov_acc = node->get_parameter("LocalBA.cov_acc").as_double();
+    rand_walk_gyr = node->get_parameter("LocalBA.rdw_gyr").as_double();
+    rand_walk_acc = node->get_parameter("LocalBA.rdw_acc").as_double();
+    min_ba_point = node->get_parameter("LocalBA.min_ba_point").as_int();
+    plane_eigen_value_thre = node->get_parameter("LocalBA.plane_eigen_value_thre").as_double_array();
+    imu_coef = node->get_parameter("LocalBA.imu_coef").as_double();
+    thread_num = node->get_parameter("LocalBA.thread_num").as_int();
 
     for(double &iter: plane_eigen_value_thre) iter = 1.0 / iter;
     // for(double &iter: plane_eigen_value_thre) iter = 1.0 / iter;
@@ -1084,7 +1140,7 @@ public:
       if(EKF_stop_flg) break;
     }
 
-    double tt1 = ros::Time::now().toSec();
+    double tt1 = now_sec();
     for(pointVar pv: *pptr)
     {
       pv.pnt = x_curr.R * pv.pnt + x_curr.p;
@@ -1094,14 +1150,14 @@ public:
     }
     down_sampling_voxel(*pl_tree, 0.5);
     kd_map.setInputCloud(pl_tree);
-    double tt2 = ros::Time::now().toSec();
+    double tt2 = now_sec();
   }
 
   // After detecting loop closure, refine current map and states
   void loop_update()
   {
     printf("loop update: %zu\n", sws[0].size());
-    double t1 = ros::Time::now().toSec();
+    double t1 = now_sec();
     for(auto iter=surf_map.begin(); iter!=surf_map.end(); iter++)
     {
       // octos_release.push_back(iter->second);
@@ -1181,7 +1237,7 @@ public:
 
     if(g_update == 1) g_update = 2;
     loop_detect = 0;
-    double t2 = ros::Time::now().toSec();
+    double t2 = now_sec();
     printf("loop head: %lf %zu\n", t2 - t1, sws[0].size());
   }
 
@@ -1189,7 +1245,7 @@ public:
   void keyframe_loading(double jour)
   {
     if(history_kfsize <= 0) return;
-    double tt1 = ros::Time::now().toSec();
+    double tt1 = now_sec();
     PointType ap_curr;
     ap_curr.x = x_curr.p[0];
     ap_curr.y = x_curr.p[1];
@@ -1227,11 +1283,11 @@ public:
     
   }
 
-  int initialization(deque<sensor_msgs::Imu::Ptr> &imus, Eigen::MatrixXd &hess, LidarFactor &voxhess, PLV(3) &pwld, pcl::PointCloud<PointType>::Ptr pcl_curr)
+  int initialization(deque<sensor_msgs::msg::Imu::SharedPtr> &imus, Eigen::MatrixXd &hess, LidarFactor &voxhess, PLV(3) &pwld, pcl::PointCloud<PointType>::Ptr pcl_curr)
   {
     static vector<pcl::PointCloud<PointType>::Ptr> pl_origs;
     static vector<double> beg_times;
-    static vector<deque<sensor_msgs::Imu::Ptr>> vec_imus;
+    static vector<deque<sensor_msgs::msg::Imu::SharedPtr>> vec_imus;
 
     pcl::PointCloud<PointType>::Ptr orig(new pcl::PointCloud<PointType>(*pcl_curr));
     if(odom_ekf.process(x_curr, *pcl_curr, imus) == 0)
@@ -1287,7 +1343,7 @@ public:
     return 0;
   }
 
-  void system_reset(deque<sensor_msgs::Imu::Ptr> &imus)
+  void system_reset(deque<sensor_msgs::msg::Imu::SharedPtr> &imus)
   {
     for(auto iter=surf_map.begin(); iter!=surf_map.end(); iter++)
     {
@@ -1313,7 +1369,7 @@ public:
       mp[i] = i;
     win_base = 0; win_count = 0; pcl_path.clear();
     pub_pl_func(pcl_path, pub_cmap);
-    ROS_WARN("Reset");
+    RCLCPP_WARN(g_node->get_logger(), "Reset");
   }
 
   // After local BA, update the map and marginalize the points of oldest scan
@@ -1453,7 +1509,7 @@ public:
   }
 
   // The main thread of odometry and local mapping
-  void thd_odometry_localmapping(ros::NodeHandle &n)
+  void thd_odometry_localmapping(rclcpp::Node::SharedPtr node)
   {
     PLV(3) pwld;
     double down_sizes[3] = {0.1, 0.2, 0.4};
@@ -1466,27 +1522,26 @@ public:
     pl_tree.reset(new pcl::PointCloud<PointType>());
     vector<pcl::PointCloud<PointType>::Ptr> pl_origs;
     vector<double> beg_times;
-    vector<deque<sensor_msgs::Imu::Ptr>> vec_imus;
+    vector<deque<sensor_msgs::msg::Imu::SharedPtr>> vec_imus;
     bool release_flag = false;
     int degrade_cnt = 0;
     LidarFactor voxhess(win_size);
     const int mgsize = 1;
     Eigen::MatrixXd hess;
-    while(n.ok())
+    while(rclcpp::ok())
     {
-      ros::spinOnce();
+      rclcpp::spin_some(node);
       if(loop_detect == 1)
       {
         loop_update(); last_pos = x_curr.p; jour = 0;
       }
-      
-      n.param<bool>("finish", is_finish, false);
-      if(is_finish)
+
+      if(g_is_finish.load())
       {
         break;
       }
 
-      deque<sensor_msgs::Imu::Ptr> imus;
+      deque<sensor_msgs::msg::Imu::SharedPtr> imus;
       if(!sync_packages(pcl_curr, imus, odom_ekf))
       {
         if(octos_release.size() != 0)
@@ -1548,7 +1603,7 @@ public:
         first_flag = 0;
       }
 
-      double t0 = ros::Time::now().toSec();
+      double t0 = now_sec();
       double t1=0, t2=0, t3=0, t4=0, t5=0, t6=0, t7=0, t8=0;
 
       if(motion_init_flag)
@@ -1594,7 +1649,7 @@ public:
         pvec_update(pptr, x_curr, pwld);
         ResultOutput::instance().pub_localtraj(pwld, jour, x_curr, sessionNames.size()-1, pcl_path);
 
-        t1 = ros::Time::now().toSec();
+        t1 = now_sec();
 
         win_count++;
         x_buf.push_back(x_curr);
@@ -1610,10 +1665,10 @@ public:
 
         // cut_voxel(surf_map, pvec_buf[win_count-1], win_count-1, surf_map_slide, win_size, pwld, sws[0]);
         cut_voxel_multi(surf_map, pvec_buf[win_count-1], win_count-1, surf_map_slide, win_size, pwld, sws);
-        t2 = ros::Time::now().toSec();
+        t2 = now_sec();
 
         multi_recut(surf_map_slide, win_count, x_buf, voxhess, sws);
-        t3 = ros::Time::now().toSec();
+        t3 = now_sec();
 
         if(degrade_cnt > degrade_bound)
         {
@@ -1636,7 +1691,7 @@ public:
 
       if(win_count >= win_size)
       {
-        t4 = ros::Time::now().toSec();
+        t4 = now_sec();
         
         if(g_update == 2)
         {
@@ -1662,12 +1717,12 @@ public:
 
         x_curr.R = x_buf[win_count-1].R;
         x_curr.p = x_buf[win_count-1].p;
-        t5 = ros::Time::now().toSec();
+        t5 = now_sec();
 
         ResultOutput::instance().pub_localmap(mgsize, sessionNames.size()-1, pvec_buf, x_buf, pcl_path, win_base, win_count);
 
         multi_margi(surf_map_slide, jour, win_count, x_buf, voxhess, sws[0]);
-        t6 = ros::Time::now().toSec();
+        t6 = now_sec();
 
         if((win_base + win_count) % 10 == 0)
         {
@@ -1712,7 +1767,7 @@ public:
         win_base += mgsize; win_count -= mgsize;
       }
       
-      double t_end = ros::Time::now().toSec();
+      double t_end = now_sec();
       double mem = get_memory();
       // printf("%d: %.4lf: %.4lf %.4lf %.4lf %.4lf %.4lf %.2lfGb %.1lf\n", win_base+win_count, t_end-t0, t1-t0, t2-t1, t3-t2, t5-t4, t6-t5, mem, jour);
 
@@ -1803,7 +1858,7 @@ public:
 
   // The main thread of loop clousre
   // The topDownProcess of HBA is also run here
-  void thd_loop_closure(ros::NodeHandle &n)
+  void thd_loop_closure(rclcpp::Node::SharedPtr node)
   {
     pl_kdmap.reset(new pcl::PointCloud<PointType>);
     vector<STDescManager*> std_managers;
@@ -1813,19 +1868,25 @@ public:
     double ratio_drift = 0.05;
     int curr_halt = 10, prev_halt = 30;
     int isHighFly = 0;
-    n.param<double>("Loop/jud_default", jud_default, 0.45);
-    n.param<double>("Loop/icp_eigval", icp_eigval, 14);
-    n.param<double>("Loop/ratio_drift", ratio_drift, 0.05);
-    n.param<int>("Loop/curr_halt", curr_halt, 10);
-    n.param<int>("Loop/prev_halt", prev_halt, 30);
-    n.param<int>("Loop/isHighFly", isHighFly, 0);
+    node->declare_parameter("Loop.jud_default", 0.45);
+    node->declare_parameter("Loop.icp_eigval", 14.0);
+    node->declare_parameter("Loop.ratio_drift", 0.05);
+    node->declare_parameter("Loop.curr_halt", 10);
+    node->declare_parameter("Loop.prev_halt", 30);
+    node->declare_parameter("Loop.isHighFly", 0);
+    jud_default = node->get_parameter("Loop.jud_default").as_double();
+    icp_eigval = node->get_parameter("Loop.icp_eigval").as_double();
+    ratio_drift = node->get_parameter("Loop.ratio_drift").as_double();
+    curr_halt = node->get_parameter("Loop.curr_halt").as_int();
+    prev_halt = node->get_parameter("Loop.prev_halt").as_int();
+    isHighFly = node->get_parameter("Loop.isHighFly").as_int();
     ConfigSetting config_setting;
-    read_parameters(n, config_setting, isHighFly);
+    read_parameters(node, config_setting, isHighFly);
 
     vector<double> juds;
-    FileReaderWriter::instance().previous_map_names(n, sessionNames, juds);
+    FileReaderWriter::instance().previous_map_names(node, sessionNames, juds);
     FileReaderWriter::instance().pgo_edges_io(lp_edges, sessionNames, 0, savepath, bagname);
-    FileReaderWriter::instance().previous_map_read(std_managers, multimap_scanPoses, multimap_keyframes, config_setting, lp_edges, n, sessionNames, juds, savepath, win_size);
+    FileReaderWriter::instance().previous_map_read(std_managers, multimap_scanPoses, multimap_keyframes, config_setting, lp_edges, node, sessionNames, juds, savepath, win_size);
     
     STDescManager *std_manager = new STDescManager(config_setting);
     sessionNames.push_back(bagname);
@@ -1851,7 +1912,7 @@ public:
     IMUST x_key;
     int buf_base = 0;
 
-    while(n.ok())
+    while(rclcpp::ok())
     {
       if(reset_flag == 1)
       {
@@ -2241,7 +2302,7 @@ public:
     pub_pl_func(pl0, pub_prev_path);
     pub_pl_func(pl0, pub_scan);
 
-    double t0 = ros::Time::now().toSec();
+    double t0 = now_sec();
     while(gba_flag);
     
     for(PGO_Edge &edge: gba_edges1.edges)
@@ -2299,7 +2360,7 @@ public:
 
     Eigen::Quaterniond qq(multimap_scanPoses[0]->at(0)->x.R);
 
-    double t1 = ros::Time::now().toSec();
+    double t1 = now_sec();
     printf("GBA opt: %lfs\n", t1 - t0);
 
     for(int ii=0; ii<idsize; ii++)
@@ -2322,7 +2383,7 @@ public:
     bool is_display = false;
     if(plptr == nullptr) is_display = true;
 
-    double t0 = ros::Time::now().toSec();
+    double t0 = now_sec();
     vector<Keyframe*> smps;
     vector<IMUST> xs;
     int last_mp = -1, isCnct = 0;
@@ -2482,14 +2543,17 @@ public:
   }
 
   // The main thread of bottom up in global mapping
-  void thd_globalmapping(ros::NodeHandle &n)
+  void thd_globalmapping(rclcpp::Node::SharedPtr node)
   {
-    n.param<double>("GBA/voxel_size", gba_voxel_size, 1.0);
-    n.param<double>("GBA/min_eigen_value", gba_min_eigen_value, 0.01);
-    n.param<vector<double>>("GBA/eigen_value_array", gba_eigen_value_array, vector<double>());
+    node->declare_parameter("GBA.voxel_size", 1.0);
+    node->declare_parameter("GBA.min_eigen_value", 0.01);
+    node->declare_parameter("GBA.eigen_value_array", vector<double>());
+    node->declare_parameter("GBA.total_max_iter", 1);
+    gba_voxel_size = node->get_parameter("GBA.voxel_size").as_double();
+    gba_min_eigen_value = node->get_parameter("GBA.min_eigen_value").as_double();
+    gba_eigen_value_array = node->get_parameter("GBA.eigen_value_array").as_double_array();
     for(double &iter: gba_eigen_value_array) iter = 1.0 / iter;
-    int total_max_iter = 1;
-    n.param<int>("GBA/total_max_iter", total_max_iter, 1);
+    int total_max_iter = node->get_parameter("GBA.total_max_iter").as_int();
 
     vector<Keyframe*> gba_submaps;
     deque<int> localID;
@@ -2500,7 +2564,7 @@ public:
     int mgsize = 5;
     int thread_num = 5;
 
-    while(n.ok())
+    while(rclcpp::ok())
     {
       if(multimap_keyframes.empty())
       {
@@ -2547,7 +2611,7 @@ public:
       }
       mtx_keyframe.unlock();
 
-      double tg1 = ros::Time::now().toSec();
+      double tg1 = now_sec();
 
       Keyframe *gba_smp = new Keyframe(smp_local[0]->x0);
       vector<int> mps{smp_mp};
@@ -2598,28 +2662,31 @@ public:
 
 int main(int argc, char **argv)
 {
-  ros::init(argc, argv, "cmn_voxel");
-  ros::NodeHandle n;
+  rclcpp::init(argc, argv);
+  g_node = std::make_shared<rclcpp::Node>("cmn_voxel");
 
-  pub_cmap = n.advertise<sensor_msgs::PointCloud2>("/map_cmap", 100);
-  pub_pmap = n.advertise<sensor_msgs::PointCloud2>("/map_pmap", 100);
-  pub_scan = n.advertise<sensor_msgs::PointCloud2>("/map_scan", 100);
-  pub_init = n.advertise<sensor_msgs::PointCloud2>("/map_init", 100);
-  pub_test = n.advertise<sensor_msgs::PointCloud2>("/map_test", 100);
-  pub_curr_path = n.advertise<sensor_msgs::PointCloud2>("/map_path", 100);
-  pub_prev_path = n.advertise<sensor_msgs::PointCloud2>("/map_true", 100);
-  
-  VOXEL_SLAM vs(n);
+  pub_cmap = g_node->create_publisher<sensor_msgs::msg::PointCloud2>("/map_cmap", 100);
+  pub_pmap = g_node->create_publisher<sensor_msgs::msg::PointCloud2>("/map_pmap", 100);
+  pub_scan = g_node->create_publisher<sensor_msgs::msg::PointCloud2>("/map_scan", 100);
+  pub_init = g_node->create_publisher<sensor_msgs::msg::PointCloud2>("/map_init", 100);
+  pub_test = g_node->create_publisher<sensor_msgs::msg::PointCloud2>("/map_test", 100);
+  pub_curr_path = g_node->create_publisher<sensor_msgs::msg::PointCloud2>("/map_path", 100);
+  pub_prev_path = g_node->create_publisher<sensor_msgs::msg::PointCloud2>("/map_true", 100);
+  tf_broadcaster = std::make_shared<tf2_ros::TransformBroadcaster>(g_node);
+
+  VOXEL_SLAM vs(g_node);
   mp = new int[vs.win_size];
   for(int i=0; i<vs.win_size; i++)
     mp[i] = i;
-  
-  thread thread_loop(&VOXEL_SLAM::thd_loop_closure, &vs, ref(n));
-  thread thread_gba(&VOXEL_SLAM::thd_globalmapping, &vs, ref(n));
-  vs.thd_odometry_localmapping(n);
 
+  thread thread_loop(&VOXEL_SLAM::thd_loop_closure, &vs, g_node);
+  thread thread_gba(&VOXEL_SLAM::thd_globalmapping, &vs, g_node);
+  vs.thd_odometry_localmapping(g_node);
+
+  g_is_finish.store(true);
   thread_loop.join();
   thread_gba.join();
-  ros::spin(); return 0;
+  rclcpp::shutdown();
+  return 0;
 }
 

@@ -1,25 +1,28 @@
-<package>
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
   <name>voxelslam_pointcloud2</name>
   <version>0.11.0</version>
   <description>
-     Tutorials showing how to write plugins for RViz.
+     RViz2 plugin for VoxelSLAM point cloud display.
   </description>
   <maintainer email="zhengliu1323@hotmail.com">Zheng Liu</maintainer>
   <license>BSD</license>
 
   <author>Zheng Liu</author>
 
-  <buildtool_depend>catkin</buildtool_depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <depend>rclcpp</depend>
+  <depend>rviz_common</depend>
+  <depend>rviz_rendering</depend>
+  <depend>rviz_default_plugins</depend>
+  <depend>sensor_msgs</depend>
+  <depend>pluginlib</depend>
 
   <build_depend>qtbase5-dev</build_depend>
-  <build_depend>rviz</build_depend>
-
-  <run_depend>libqt5-core</run_depend>
-  <run_depend>libqt5-gui</run_depend>
-  <run_depend>libqt5-widgets</run_depend>
-  <run_depend>rviz</run_depend>
 
   <export>
-      <rviz plugin="${prefix}/plugin_description.xml"/>
+    <build_type>ament_cmake</build_type>
   </export>
 </package>

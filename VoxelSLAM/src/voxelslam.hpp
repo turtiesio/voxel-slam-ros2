@@ -7,10 +7,12 @@
 #include "loop_refine.hpp"
 #include <mutex>
 #include <Eigen/Eigenvalues>
-#include <tf/transform_broadcaster.h>
-#include <visualization_msgs/MarkerArray.h>
+#include <tf2_ros/transform_broadcaster.h>
+#include <tf2/LinearMath/Quaternion.h>
+#include <geometry_msgs/msg/transform_stamped.hpp>
+#include <visualization_msgs/msg/marker_array.hpp>
 #include <malloc.h>
-#include <geometry_msgs/PoseArray.h>
+#include <geometry_msgs/msg/pose_array.hpp>
 #include <pcl/kdtree/kdtree_flann.h>
 #include <malloc.h>
 #include <gtsam/inference/Symbol.h>
@@ -24,24 +26,37 @@
 
 using namespace std;
 
-ros::Publisher pub_scan, pub_cmap, pub_init, pub_pmap;
-ros::Publisher pub_test, pub_prev_path, pub_curr_path;
-ros::Subscriber sub_imu, sub_pcl;
+// Forward declaration - these will be initialized in the node
+class VoxelSlamNode;
+extern rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_scan, pub_cmap, pub_init, pub_pmap;
+extern rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_test, pub_prev_path, pub_curr_path;
+extern std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster;
+extern rclcpp::Node::SharedPtr g_node;
+
+// Helper to get current time in seconds
+inline double now_sec() {
+  if (g_node) {
+    return g_node->now().seconds();
+  }
+  return std::chrono::duration<double>(
+    std::chrono::steady_clock::now().time_since_epoch()).count();
+}
 
 template <typename T>
-void pub_pl_func(T &pl, ros::Publisher &pub)
+void pub_pl_func(T &pl, rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr &pub)
 {
+  if (!pub) return;
   pl.height = 1; pl.width = pl.size();
-  sensor_msgs::PointCloud2 output;
+  sensor_msgs::msg::PointCloud2 output;
   pcl::toROSMsg(pl, output);
   output.header.frame_id = "camera_init";
-  output.header.stamp = ros::Time::now();
-  pub.publish(output);
+  output.header.stamp = g_node ? g_node->now() : rclcpp::Clock().now();
+  pub->publish(output);
 }
 
 mutex mBuf;
 Features feat;
-deque<sensor_msgs::Imu::Ptr> imu_buf;
+deque<sensor_msgs::msg::Imu::SharedPtr> imu_buf;
 deque<pcl::PointCloud<PointType>::Ptr> pcl_buf;
 deque<double> time_buf;
 
@@ -49,40 +64,33 @@ double imu_last_time = -1;
 int point_notime = 0;
 double last_pcl_time = -1;
 
-void imu_handler(const sensor_msgs::Imu::ConstPtr &msg_in)
+void imu_handler(const sensor_msgs::msg::Imu::SharedPtr msg_in)
 {
   static int flag = 1;
   if(flag)
   {
     flag = 0;
-    printf("Time0: %lf\n", msg_in->header.stamp.toSec());
+    printf("Time0: %lf\n", imuToSec(msg_in->header.stamp));
   }
 
-  sensor_msgs::Imu::Ptr msg(new sensor_msgs::Imu(*msg_in));
-
-  // For Hilti 2022 exp03
-  // double t0 = 1646320760 + 255.5;
-  // double t1 = 1646320760 + 256.2;
-  // double tc = msg->header.stamp.toSec();
-  // if(tc > t0 && tc < t1)
-  //   msg->linear_acceleration.z = -9.7;
+  auto msg = std::make_shared<sensor_msgs::msg::Imu>(*msg_in);
 
   mBuf.lock();
-  imu_last_time = msg->header.stamp.toSec();
+  imu_last_time = imuToSec(msg->header.stamp);
   imu_buf.push_back(msg);
   mBuf.unlock();
 }
 
 template<class T>
-void pcl_handler(T &msg)
+void pcl_handler(T msg)
 {
   pcl::PointCloud<PointType>::Ptr pl_ptr(new pcl::PointCloud<PointType>());
   double t0 = feat.process(msg, *pl_ptr);
 
   if(pl_ptr->empty())
   {
-    PointType ap; 
-    ap.x = 0; ap.y = 0; ap.z = 0; 
+    PointType ap;
+    ap.x = 0; ap.y = 0; ap.z = 0;
     ap.intensity = 0; ap.curvature = 0;
     pl_ptr->push_back(ap);
     ap.curvature = 0.09;
@@ -102,7 +110,7 @@ void pcl_handler(T &msg)
   mBuf.unlock();
 }
 
-bool sync_packages(pcl::PointCloud<PointType>::Ptr &pl_ptr, deque<sensor_msgs::Imu::Ptr> &imus, IMUEKF &p_imu)
+bool sync_packages(pcl::PointCloud<PointType>::Ptr &pl_ptr, deque<sensor_msgs::msg::Imu::SharedPtr> &imus, IMUEKF &p_imu)
 {
   static bool pl_ready = false;
 
@@ -137,10 +145,10 @@ bool sync_packages(pcl::PointCloud<PointType>::Ptr &pl_ptr, deque<sensor_msgs::I
   if(!pl_ready || imu_last_time <= p_imu.pcl_end_time) return false;
 
   mBuf.lock();
-  double imu_time = imu_buf.front()->header.stamp.toSec();
-  while((!imu_buf.empty()) && (imu_time < p_imu.pcl_end_time)) 
+  double imu_time = imuToSec(imu_buf.front()->header.stamp);
+  while((!imu_buf.empty()) && (imu_time < p_imu.pcl_end_time))
   {
-    imu_time = imu_buf.front()->header.stamp.toSec();
+    imu_time = imuToSec(imu_buf.front()->header.stamp);
     if(imu_time > p_imu.pcl_end_time) break;
     imus.push_back(imu_buf.front());
     imu_buf.pop_front();
@@ -161,7 +169,7 @@ bool sync_packages(pcl::PointCloud<PointType>::Ptr &pl_ptr, deque<sensor_msgs::I
 }
 
 double dept_err, beam_err;
-void calcBodyVar(Eigen::Vector3d &pb, const float range_inc, const float degree_inc, Eigen::Matrix3d &var) 
+void calcBodyVar(Eigen::Vector3d &pb, const float range_inc, const float degree_inc, Eigen::Matrix3d &var)
 {
   if (pb[2] == 0)
     pb[2] = 0.0001;
@@ -231,7 +239,7 @@ void read_lidarstate(string filename, vector<ScanPose*> &bl_tem)
     stringstream ss(lineStr);
     while(getline(ss, str, ' '))
       nums.push_back(stod(str));
-    
+
     IMUST xx;
     xx.t = nums[0];
     xx.p << nums[1], nums[2], nums[3];
@@ -249,7 +257,7 @@ void read_lidarstate(string filename, vector<ScanPose*> &bl_tem)
     bl_tem.push_back(blp);
 
     if(nums.size() >= 26)
-      for(int i=0; i<6; i++) 
+      for(int i=0; i<6; i++)
         blp->v6[i] = nums[i + 20];
   }
 }
@@ -278,7 +286,10 @@ double get_memory()
   return mem / (1048576);
 }
 
-void icp_check(pcl::PointCloud<PointType> &pl_src, pcl::PointCloud<PointType> &pl_tar, ros::Publisher &pub_src, ros::Publisher &pub_tar, pair<Eigen::Vector3d, Eigen::Matrix3d> &loop_transform, IMUST &xx)
+void icp_check(pcl::PointCloud<PointType> &pl_src, pcl::PointCloud<PointType> &pl_tar,
+               rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr &pub_src,
+               rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr &pub_tar,
+               pair<Eigen::Vector3d, Eigen::Matrix3d> &loop_transform, IMUST &xx)
 {
   pcl::PointCloud<PointType> pl1, pl2;
   for(PointType ap: pl_src.points)

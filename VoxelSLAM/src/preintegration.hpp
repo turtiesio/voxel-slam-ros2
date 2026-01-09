@@ -2,11 +2,16 @@
 
 #include "tools.hpp"
 #include <deque>
-#include <sensor_msgs/Imu.h>
+#include <sensor_msgs/msg/imu.hpp>
 
 // Don't forget to init
 double imupre_scale_gravity = 1.0;
 Eigen::Matrix<double, 6, 6> noiseMeas, noiseWalk;
+
+// Helper function to convert ROS 2 time to seconds
+inline double preintToSec(const builtin_interfaces::msg::Time& stamp) {
+  return static_cast<double>(stamp.sec) + static_cast<double>(stamp.nanosec) * 1e-9;
+}
 
 class IMU_PRE
 {
@@ -27,7 +32,7 @@ public:
 
   Eigen::Matrix<double, DIM, DIM> cov;
 
-  deque<sensor_msgs::ImuPtr> _imus;
+  deque<sensor_msgs::msg::Imu::SharedPtr> _imus;
 
   IMU_PRE(const Eigen::Vector3d &bg1 = Eigen::Vector3d::Zero(), const Eigen::Vector3d &ba1 = Eigen::Vector3d::Zero())
   {
@@ -47,16 +52,16 @@ public:
     cov.setZero();
   }
 
-  void push_imu(deque<sensor_msgs::ImuPtr> &imus)
+  void push_imu(deque<sensor_msgs::msg::Imu::SharedPtr> &imus)
   {
     _imus.insert(_imus.end(), imus.begin(), imus.end());
     Eigen::Vector3d cur_gyr, cur_acc;
     for(auto it_imu=imus.begin()+1; it_imu!=imus.end(); it_imu++)
     {
-      sensor_msgs::Imu &imu1 = **(it_imu-1);
-      sensor_msgs::Imu &imu2 = **it_imu;
+      sensor_msgs::msg::Imu &imu1 = **(it_imu-1);
+      sensor_msgs::msg::Imu &imu2 = **it_imu;
 
-      double dt = imu2.header.stamp.toSec() - imu1.header.stamp.toSec();
+      double dt = preintToSec(imu2.header.stamp) - preintToSec(imu1.header.stamp);
 
       cur_gyr << 0.5*(imu1.angular_velocity.x + imu2.angular_velocity.x),
                  0.5*(imu1.angular_velocity.y + imu2.angular_velocity.y),
@@ -77,7 +82,7 @@ public:
     dtime += dt;
     Eigen::Matrix3d R_inc = Exp(cur_gyr, dt);
     Eigen::Matrix3d R_jr(jr(cur_gyr * dt));
-    
+
     Eigen::Matrix3d R_dt = dt * R_delta;
     Eigen::Matrix3d R_dt2_2 = 0.5*dt*dt*R_delta;
 
@@ -89,7 +94,7 @@ public:
     v_ba = v_ba - R_dt;
     v_bg = v_bg - R_dt * acc_skew * R_bg;
     R_bg = R_inc.transpose() * R_bg - R_jr*dt;
-    
+
     // Eigen::Matrix<double, DIM, DIM> Ai;
     // Eigen::Matrix<double, DIM, DNOI> Bi;
     // Ai.setIdentity(); Bi.setZero();
@@ -114,7 +119,7 @@ public:
     Eigen::Matrix<double, 9, 9> A;
     Eigen::Matrix<double, 9, 6> B;
     A.setIdentity(); B.setZero();
-    
+
     A.block<3, 3>(0, 0) = R_inc.transpose();
     A.block<3, 3>(3, 0) = -R_dt2_2 * acc_skew;
     A.block<3, 3>(3, 6) = I33 * dt;
@@ -160,7 +165,7 @@ public:
     rr.block<3, 1>(6, 0) = res_v;
     rr.block<3, 1>(9, 0) = res_bg*b_wei;
     rr.block<3, 1>(12, 0) = res_ba*b_wei;
-    
+
     // rr.block<3, 1>(15, 0) = st2.g - st1.g;
 
     Eigen::Matrix<double, 15, 15> cov_inv = cov.inverse();
@@ -179,7 +184,7 @@ public:
       joca.block<3, 3>(3, 9) = -p_bg;
       joca.block<3, 3>(3, 12) = -p_ba;
       jocb.block<3, 3>(3, 3) = st1.R.transpose();
-      
+
       joca.block<3, 3>(6, 0) = hat(exp_v);
       joca.block<3, 3>(6, 6) = -st1.R.transpose();
       joca.block<3, 3>(6, 9) = -v_bg;
@@ -239,7 +244,7 @@ public:
     rr.block<3, 1>(6, 0) = res_v;
     rr.block<3, 1>(9, 0) = res_bg*b_wei;
     rr.block<3, 1>(12, 0) = res_ba*b_wei;
-    
+
     // rr.block<3, 1>(15, 0) = st2.g - st1.g;
     Eigen::Matrix<double, 15, 15> cov_inv = cov.inverse();
 
@@ -257,7 +262,7 @@ public:
       joca.block<3, 3>(3, 9) = -p_bg;
       joca.block<3, 3>(3, 12) = -p_ba;
       jocb.block<3, 3>(3, 3) = st1.R.transpose();
-      
+
       joca.block<3, 3>(6, 0) = hat(exp_v);
       joca.block<3, 3>(6, 6) = -st1.R.transpose();
       joca.block<3, 3>(6, 9) = -v_bg;
@@ -309,7 +314,7 @@ public:
     v_bg += R_delta*(imu2.v_bg - hat(imu2.v_delta)*R_bg);
     v_ba += R_delta*imu2.v_ba;
     R_bg = imu2.R_delta.transpose()*R_bg + imu2.R_bg;
-    
+
     Eigen::Matrix<double, DIM, DIM> Ai, Bi;
     Ai.setIdentity(); Bi.setIdentity();
     Ai.block<3, 3>(0, 0) = imu2.R_delta.transpose();

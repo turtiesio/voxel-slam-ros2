@@ -23,19 +23,19 @@ Voxel-SLAM has been served as a subsystem to participate in [ICRA HILTI 2023 SLA
 
 ## 2. Prerequisited
 
-Ubuntu=20.04. [ROS =Noetic](http://wiki.ros.org/ROS/Installation). [PCL=1.10](https://pointclouds.org/). [Eigen=3.3.7](https://eigen.tuxfamily.org/index.php?title=Main_Page)
+Ubuntu 22.04+. [ROS2 Humble/Jazzy](https://docs.ros.org/en/humble/Installation.html). [PCL>=1.10](https://pointclouds.org/). [Eigen>=3.3.7](https://eigen.tuxfamily.org/index.php?title=Main_Page)
 
-[GTSAM=4.0.3](https://github.com/borglab/gtsam/releases?page=2)
+[GTSAM>=4.0.3](https://github.com/borglab/gtsam/releases?page=2)
 
-[livox_ros_driver](https://github.com/Livox-SDK/livox_ros_driver)
+[livox_ros_driver2](https://github.com/Livox-SDK/livox_ros_driver2)
 
 ## 3. Build
 
 ```
-cd ~/catkin_ws/src
+cd ~/ros2_ws/src
 git clone https://github.com/hku-mars/Voxel-SLAM
-cd ../ && catkin_make
-source ~/catkin_ws/devel/setup.bash
+cd ~/ros2_ws && colcon build --packages-select voxel_slam
+source ~/ros2_ws/install/setup.bash
 ```
 
 ## 4. Run Voxel-SLAM
@@ -45,10 +45,10 @@ source ~/catkin_ws/devel/setup.bash
 The online relocalization experiment rosbag. Download: [Onedrive](https://1drv.ms/f/c/8b1ef18ae4181c8d/ErEznhkJzTxJiLuJ8AQDGS0BvCy6KsuaWF2D6cnx061GEQ?e=dMRSlf) ([Google Drive](https://drive.google.com/file/d/1LG46i0vreQrMZRap5tJkjKK4IX0t0zfC/view?usp=drive_link))
 
 ```
-roslaunch roslaunch voxel_slam vxlm_avia.launch
-// Using the "--pause" guarantees the bag benning time are the same in different runs
-// Press the Space to start
-rosbag play compus_elevator.bag --pause 
+ros2 launch voxel_slam vxlm_avia.launch.py
+# Using "--start-paused" guarantees the bag beginning time are the same in different runs
+# Press Space to start
+ros2 bag play compus_elevator --start-paused
 ```
 
 In the elevator, the system continues to restart until stepping out of the evevator. The blue point cloud is the map from initialization.
@@ -56,25 +56,25 @@ In the elevator, the system continues to restart until stepping out of the eveva
 After the rosbag is done, your may find the map is inconsistent as shown in the video. Run
 
 ```
-rosparam set finish true
+ros2 param set /voxel_slam finish true
 ```
 
 to launch the final global mapping (global bundle adjustment) to refine the global map.
 
 ### 4.2 HILTI 2023 (Multi-Session)
 
-The multi-session experiment rosbag. 
+The multi-session experiment rosbag.
 
 For quick test to download: [Onedrive](https://1drv.ms/f/c/8b1ef18ae4181c8d/Epp5AQ2Oq1VNhC6MIuCAtN4BJC9jx9VvuVx7VT_cdlvD0A?e=8mXYdc). The whole rosbags of HILTI 2022 and 2023 are on the [website](https://hilti-challenge.com/index.html).
 
-The rosbag had better be played from "site1_handheld_5" to "site_handheld_1", or the "site_handheld_2" and "site_handheld_3" cannot find the loop. 
+The rosbag had better be played from "site1_handheld_5" to "site_handheld_1", or the "site_handheld_2" and "site_handheld_3" cannot find the loop.
 
 Before launching, please set configure the variables in "hesai.yaml". The '#' means annotation
 
 ```
 # hesai.yaml
 save_path: "${YOUR_FILE_PATH_TO_SAVE_THE_OFFLINE_MAP}"
-previous_map: "# site1_handheld_5: 0.50, 
+previous_map: "# site1_handheld_5: 0.50,
                # site1_handheld_4: 0.45,
                # site1_handheld_3: 0.30,
                # site1_handheld_2: 0.50"
@@ -83,18 +83,18 @@ is_save_map: 1 # Enable to save the map
 ```
 
 ```
-roslaunch voxel_slam vxlm_hesai.launch
-rosbag play site1_handheld_5.bag --pause
+ros2 launch voxel_slam vxlm_hesai.launch.py
+ros2 bag play site1_handheld_5 --start-paused
 ```
 
 ```
-roslaunch voxel_slam vxlm_hesai.launch // Load the site_handheld_5
-rosbag play site1_handheld_4.bag --pause
+ros2 launch voxel_slam vxlm_hesai.launch.py  # Load the site_handheld_5
+ros2 bag play site1_handheld_4 --start-paused
 ```
 
 ```
-roslaunch voxel_slam vxlm_hesai.launch // Load the site_handheld_{5, 4}
-rosbag play site1_handheld_3.bag --pause
+ros2 launch voxel_slam vxlm_hesai.launch.py  # Load the site_handheld_{5, 4}
+ros2 bag play site1_handheld_3 --start-paused
 ```
 
 For the "site1_handheld_2", do not forget load the offline maps. The "hesai.yaml" should be like this
@@ -102,7 +102,7 @@ For the "site1_handheld_2", do not forget load the offline maps. The "hesai.yaml
 ```
 # hesai.yaml
 save_path: "${YOUR_FILE_PATH_TO_SAVE_THE_OFFLINE_MAP}"
-previous_map: "site1_handheld_5: 0.50, 
+previous_map: "site1_handheld_5: 0.50,
                site1_handheld_4: 0.45,
                site1_handheld_3: 0.30,
                # site1_handheld_2: 0.50"
@@ -111,19 +111,19 @@ is_save_map: 1 # Enable to save the map
 ```
 
 ```
-roslaunch voxel_slam vxlm_hesai.launch // Load the site_handheld_{5, 4, 3}
-rosbag play site1_handheld_2.bag --pause
+ros2 launch voxel_slam vxlm_hesai.launch.py  # Load the site_handheld_{5, 4, 3}
+ros2 bag play site1_handheld_2 --start-paused
 ```
 
 ```
-roslaunch voxel_slam vxlm_hesai.launch // Load the site_handheld_{5, 4, 3, 2}
-rosbag play site1_handheld_1.bag --pause
+ros2 launch voxel_slam vxlm_hesai.launch.py  # Load the site_handheld_{5, 4, 3, 2}
+ros2 bag play site1_handheld_1 --start-paused
 ```
 
 The map may not be consistent as shown in the video. Run
 
 ```
-rosparam set finish true
+ros2 param set /voxel_slam finish true
 ```
 
 for the final global BA.
@@ -133,16 +133,16 @@ for the final global BA.
 For quick test to download: [Onedrive](https://1drv.ms/f/c/8b1ef18ae4181c8d/EpjsGW6coYlMvBWo8TlgJXoBttAuoocLi24V6kw-r_3A8w?e=vVB6RY). The whole rosbags of MARS dataset are on the [website](https://mars.hku.hk/dataset.html).
 
 ```
-roslaunch voxel_slam vxlm_avia_fly.launch
-rosbag play HKisland03.bag --pause
+ros2 launch voxel_slam vxlm_avia_fly.launch.py
+ros2 bag play HKisland03 --start-paused
 ```
 
 The beginning of the point cloud is empty and failing to initialize until the drone at a certain height.
 
 ```
-roslaunch voxel_slam vxlm_avia_fly.launch
-rosbag play AMvalley03.bag --pause
-rosparam set finish true
+ros2 launch voxel_slam vxlm_avia_fly.launch.py
+ros2 bag play AMvalley03 --start-paused
+ros2 param set /voxel_slam finish true
 ```
 
 This sequence is difficult to find loop. Please run the GBA to ensure the global map consistence.
@@ -152,8 +152,8 @@ This sequence is difficult to find loop. Please run the GBA to ensure the global
 The rosbag begin in a violent speed: [Onedrive](https://1drv.ms/f/c/8b1ef18ae4181c8d/ErtuXCFhFrBErZxzS5vLASkBJEfgDB9R2CSCgKe8BwhneQ?e=zbr7NL)
 
 ```
-roslaunch voxel_slam vxlm_mid360.launch
-rosbag play jungle_challenge.bag --pause
+ros2 launch voxel_slam vxlm_mid360.launch.py
+ros2 bag play jungle_challenge --start-paused
 ```
 
 ### 4.5 Others
@@ -162,11 +162,14 @@ Other types of LiDAR will be released later.
 
 ## 5. VoxelSLAMPointCloud2
 
-**VoxelSLAMPointCloud2**: A customized plugin for RViz. It has the same usage to original "PointCloud2" in RViz, but it can **clear the point cloud map automatically** when receiving an empty point cloud, with any **Decay Time** of the plugin. 
+**VoxelSLAMPointCloud2**: A customized plugin for RViz2. It has the same usage to original "PointCloud2" in RViz2, but it can **clear the point cloud map automatically** when receiving an empty point cloud, with any **Decay Time** of the plugin.
 
-(1) Put the "VoxelSLAMPointCloud2" within the same "src" folder to your project and catkin_make.
+(1) Put the "VoxelSLAMPointCloud2" within the same workspace and build with colcon:
+```
+colcon build --packages-select voxelslam_pointcloud2
+```
 
-(2) “roslaunch” your program with RViz. 
+(2) Launch your program with RViz2.
 
 (3) Click the "Add" button to add the "VoxelSLAMPointCloud2".
 
