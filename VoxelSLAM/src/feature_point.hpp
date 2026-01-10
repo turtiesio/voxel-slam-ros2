@@ -359,15 +359,24 @@ public:
     pl_full.reserve(pl_orig.size());
 
     PointType pp; pp.curvature = 0;
-    for(pcl::PointXYZ &ap: pl_orig.points)
+    int plsize = pl_orig.size();
+    for(int i = 0; i < plsize; i++)
     {
-      pp.x = ap.x;
-      pp.y = ap.y;
-      pp.z = ap.z;
-      pl_full.push_back(pp);
-    }
+      pcl::PointXYZ &ap = pl_orig[i];
+      if(!std::isfinite(ap.x) || !std::isfinite(ap.y) || !std::isfinite(ap.z))
+        continue;
 
-    return;
+      if(i % point_filter_num == 0)
+      {
+        if(ap.x*ap.x + ap.y*ap.y + ap.z*ap.z > blind)
+        {
+          pp.x = ap.x;
+          pp.y = ap.y;
+          pp.z = ap.z;
+          pl_full.push_back(pp);
+        }
+      }
+    }
   }
 
 };
