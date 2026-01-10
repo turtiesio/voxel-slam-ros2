@@ -1,4 +1,5 @@
 #include "voxelslam.hpp"
+#include <cstdlib>  // for std::getenv
 
 using namespace std;
 
@@ -2667,7 +2668,20 @@ public:
 int main(int argc, char **argv)
 {
   rclcpp::init(argc, argv);
-  g_node = std::make_shared<rclcpp::Node>("cmn_voxel");
+
+  // Check USE_SIM_TIME environment variable (cleanest approach)
+  // Set by launch file: SetEnvironmentVariable('USE_SIM_TIME', 'true')
+  bool use_sim_time = false;
+  const char* env = std::getenv("USE_SIM_TIME");
+  if (env && (std::string(env) == "true" || std::string(env) == "1")) {
+    use_sim_time = true;
+  }
+
+  rclcpp::NodeOptions options;
+  options.parameter_overrides({rclcpp::Parameter("use_sim_time", use_sim_time)});
+  g_node = std::make_shared<rclcpp::Node>("cmn_voxel", options);
+
+  RCLCPP_INFO(g_node->get_logger(), "VoxelSLAM use_sim_time: %s", use_sim_time ? "true" : "false");
 
   pub_cmap = g_node->create_publisher<sensor_msgs::msg::PointCloud2>("/map_cmap", 100);
   pub_pmap = g_node->create_publisher<sensor_msgs::msg::PointCloud2>("/map_pmap", 100);

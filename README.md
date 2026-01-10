@@ -32,6 +32,26 @@ scale_gravity = imu_in_g_unit ? G_m_s2 : 1.0;
 - `false`: IMU outputs acceleration in m/s² (e.g., Velodyne, Ouster, Hesai)
 - Default: `false`
 
+**4. Simulation Time Support (`voxelslam.cpp`)**
+
+Added support for `use_sim_time` via environment variable for Gazebo simulation:
+```cpp
+// Set USE_SIM_TIME=true environment variable before launching
+const char* env = std::getenv("USE_SIM_TIME");
+if (env && (std::string(env) == "true" || std::string(env) == "1")) {
+    use_sim_time = true;
+}
+```
+
+Usage in launch file:
+```python
+Node(
+    package='voxel_slam',
+    executable='voxelslam',
+    additional_env={'USE_SIM_TIME': 'true'},  # For simulation
+)
+```
+
 > **Note**: These modifications have only been tested with **Livox Mid-360**. Behavior on other LiDAR/IMU sensors (Avia, Velodyne, Ouster, Hesai, etc.) is untested.
 
 ---
