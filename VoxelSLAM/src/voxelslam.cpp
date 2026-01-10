@@ -806,16 +806,18 @@ public:
     vecR = node->get_parameter("General.extrinsic_rota").as_double_array();
     is_save_map = node->get_parameter("General.is_save_map").as_int();
 
+    // Use SensorDataQoS for sensor topics (BEST_EFFORT, compatible with Gazebo/ros_gz_bridge)
+    auto sensor_qos = rclcpp::SensorDataQoS().keep_last(1000);
     sub_imu = node->create_subscription<sensor_msgs::msg::Imu>(
-      imu_topic, rclcpp::QoS(80000),
+      imu_topic, sensor_qos,
       [](sensor_msgs::msg::Imu::SharedPtr msg) { imu_handler(msg); });
     if(feat.lidar_type == LIVOX)
       sub_pcl = node->create_subscription<livox_ros_driver2::msg::CustomMsg>(
-        lid_topic, rclcpp::QoS(1000),
+        lid_topic, sensor_qos,
         [](livox_ros_driver2::msg::CustomMsg::SharedPtr msg) { pcl_handler(msg); });
     else
       sub_pcl = node->create_subscription<sensor_msgs::msg::PointCloud2>(
-        lid_topic, rclcpp::QoS(1000),
+        lid_topic, sensor_qos,
         [](sensor_msgs::msg::PointCloud2::SharedPtr msg) { pcl_handler(msg); });
     odom_ekf.imu_topic = imu_topic;
     odom_ekf.imu_in_g_unit = node->get_parameter("General.imu_in_g_unit").as_bool();
