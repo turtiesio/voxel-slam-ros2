@@ -4,12 +4,13 @@
 #include <rclcpp/rclcpp.hpp>
 #include <pcl_conversions/pcl_conversions.h>
 #include <sensor_msgs/msg/point_cloud2.hpp>
+#include <sensor_msgs/point_cloud2_iterator.hpp>
 #include <livox_ros_driver2/msg/custom_msg.hpp>
 
 typedef pcl::PointXYZINormal PointType;
 using namespace std;
 
-enum LID_TYPE{LIVOX, VELODYNE, OUSTER, HESAI, ROBOSENSE, TARTANAIR};
+enum LID_TYPE{LIVOX, VELODYNE, OUSTER, HESAI, ROBOSENSE, TARTANAIR, LIVOX_PC2};
 
 namespace velodyne_ros {
   struct EIGEN_ALIGN16 Point {
@@ -136,6 +137,10 @@ public:
       tartanair_handler(msg, pl_full);
       break;
 
+    case LIVOX_PC2:
+      livox_pc2_handler(msg, pl_full);
+      break;
+
     default:
       printf("Lidar Type Error\n");
       exit(0);
@@ -169,6 +174,44 @@ public:
 
     }
 
+  }
+
+  // Handler for Livox PointCloud2 format (with timestamp field)
+  // Extracts per-point timestamp and converts to relative time for motion compensation
+  void livox_pc2_handler(const sensor_msgs::msg::PointCloud2::SharedPtr &msg, pcl::PointCloud<PointType> &pl_full)
+  {
+    int plsize = msg->width * msg->height;
+    if (plsize == 0) return;
+    pl_full.reserve(plsize);
+
+    // Use iterators for safe field access (handles 26-byte non-aligned point_step)
+    sensor_msgs::PointCloud2ConstIterator<float> iter_x(*msg, "x");
+    sensor_msgs::PointCloud2ConstIterator<float> iter_y(*msg, "y");
+    sensor_msgs::PointCloud2ConstIterator<float> iter_z(*msg, "z");
+    sensor_msgs::PointCloud2ConstIterator<float> iter_i(*msg, "intensity");
+    sensor_msgs::PointCloud2ConstIterator<double> iter_ts(*msg, "timestamp");
+
+    // Get first point's timestamp as base for relative time calculation
+    double base_time = *iter_ts;
+
+    int i = 0;
+    for (; iter_x != iter_x.end(); ++iter_x, ++iter_y, ++iter_z, ++iter_i, ++iter_ts, ++i)
+    {
+      if (i % point_filter_num != 0) continue;
+
+      PointType ap;
+      ap.x = *iter_x;
+      ap.y = *iter_y;
+      ap.z = *iter_z;
+      ap.intensity = *iter_i;
+      // Convert absolute timestamp (ns) to relative time (s) from frame start
+      ap.curvature = (*iter_ts - base_time) / 1e9;
+
+      if (ap.x*ap.x + ap.y*ap.y + ap.z*ap.z > blind)
+      {
+        pl_full.push_back(ap);
+      }
+    }
   }
 
   void velodyne_handler(const sensor_msgs::msg::PointCloud2::SharedPtr &msg, pcl::PointCloud<PointType> &pl_full)
