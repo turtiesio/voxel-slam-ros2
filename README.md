@@ -52,6 +52,42 @@ Node(
 )
 ```
 
+**5. Finish Parameter: GBA and Auto Exit (`voxelslam.cpp`)**
+
+When `finish` parameter is set to `true`, the program now:
+1. Forces Global Bundle Adjustment (GBA) to run (even if normal data conditions aren't met)
+2. Saves `alidarState.txt` for later relocalization
+3. Automatically exits after GBA completion
+
+```bash
+ros2 param set /voxel_slam finish true
+```
+
+**Deadlock Fix**: Original code had a deadlock issue:
+- `topDownProcess()` sets `gba_flag=1` and waits with `while(gba_flag);`
+- `thd_globalmapping` checks: `gba_flag==1 && smp_mp>=cnct_map.back() && gba_size<=buf_base`
+- After finish, odometry stops → no new data → `buf_base` doesn't increase
+- Conditions never met → `gba_flag` stays 1 → **Both threads stuck forever**
+
+Solution: When `is_finish` is true, bypass normal data conditions and force GBA with existing submaps.
+
+**6. Map to SLAM Origin TF Publishing (`voxelslam.cpp`)**
+
+Added `map -> slam_origin` TF publishing for relocalization support. After relocalization and pose graph optimization, the correction transform is published as TF:
+
+```
+map -> slam_origin -> camera_init -> aft_mapped
+       (dx 보정)      (static height/tilt)
+```
+
+- SLAM mode: `dx = identity` (map == slam_origin)
+- Localization mode: `dx = relocalization correction`
+
+This allows querying the robot's position in map coordinates:
+```bash
+ros2 run tf2_ros tf2_echo map aft_mapped
+```
+
 > **Note**: These modifications have only been tested with **Livox Mid-360**. Behavior on other LiDAR/IMU sensors (Avia, Velodyne, Ouster, Hesai, etc.) is untested.
 
 ---

@@ -1,11 +1,13 @@
 #include "voxelslam.hpp"
 #include <cstdlib>  // for std::getenv
+#include <std_msgs/msg/float64_multi_array.hpp>
 
 using namespace std;
 
 // Global variables for ROS 2
 rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_scan, pub_cmap, pub_init, pub_pmap;
 rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_test, pub_prev_path, pub_curr_path;
+rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr pub_reloc_status;
 std::shared_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster;
 rclcpp::Node::SharedPtr g_node;
 std::atomic<bool> g_is_finish{false};
@@ -40,9 +42,30 @@ public:
     tf_broadcaster->sendTransform(transform);
   }
 
-  void pub_localtraj(PLV(3) &pwld, double jour, IMUST &x_curr, int cur_session, pcl::PointCloud<PointType> &pcl_path)
+  void pub_map_transform(IMUST &dx)
+  {
+    if (!tf_broadcaster || !g_node) return;
+
+    Eigen::Quaterniond q(dx.R);
+
+    geometry_msgs::msg::TransformStamped transform;
+    transform.header.stamp = g_node->now();
+    transform.header.frame_id = "map";
+    transform.child_frame_id = "slam_origin";
+    transform.transform.translation.x = dx.p.x();
+    transform.transform.translation.y = dx.p.y();
+    transform.transform.translation.z = dx.p.z();
+    transform.transform.rotation.w = q.w();
+    transform.transform.rotation.x = q.x();
+    transform.transform.rotation.y = q.y();
+    transform.transform.rotation.z = q.z();
+    tf_broadcaster->sendTransform(transform);
+  }
+
+  void pub_localtraj(PLV(3) &pwld, double jour, IMUST &x_curr, int cur_session, pcl::PointCloud<PointType> &pcl_path, IMUST &dx)
   {
     pub_odom_func(x_curr);
+    pub_map_transform(dx);
     pcl::PointCloud<PointType> pcl_send;
     pcl_send.reserve(pwld.size());
     for(Eigen::Vector3d &pw: pwld)
@@ -775,6 +798,7 @@ public:
 
   rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_imu;
   rclcpp::SubscriptionBase::SharedPtr sub_pcl;
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_callback_handle_;
 
   VOXEL_SLAM(rclcpp::Node::SharedPtr node)
   {
@@ -911,6 +935,24 @@ public:
 
     sws.resize(thread_num);
     cout << "bagname: " << bagname << endl;
+
+    // Register "finish" parameter for triggering Global BA
+    node->declare_parameter("finish", false);
+    param_callback_handle_ = node->add_on_set_parameters_callback(
+      [this](const std::vector<rclcpp::Parameter> &params) {
+        rcl_interfaces::msg::SetParametersResult result;
+        result.successful = true;
+        for (const auto &param : params) {
+          if (param.get_name() == "finish" && param.get_type() == rclcpp::ParameterType::PARAMETER_BOOL) {
+            if (param.as_bool()) {
+              is_finish = true;
+              g_is_finish.store(true);
+              RCLCPP_INFO(rclcpp::get_logger("voxel_slam"), "Global BA triggered! Finishing...");
+            }
+          }
+        }
+        return result;
+      });
   }
 
   // The point-to-plane alignment for odometry
@@ -1313,7 +1355,7 @@ public:
     win_count++;
     x_buf.push_back(x_curr);
     pvec_buf.push_back(pptr);
-    ResultOutput::instance().pub_localtraj(pwld, 0, x_curr, sessionNames.size()-1, pcl_path);
+    ResultOutput::instance().pub_localtraj(pwld, 0, x_curr, sessionNames.size()-1, pcl_path, dx);
 
     if(win_count > 1)
     {
@@ -1652,7 +1694,7 @@ public:
 
         pwld.clear();
         pvec_update(pptr, x_curr, pwld);
-        ResultOutput::instance().pub_localtraj(pwld, jour, x_curr, sessionNames.size()-1, pcl_path);
+        ResultOutput::instance().pub_localtraj(pwld, jour, x_curr, sessionNames.size()-1, pcl_path, dx);
 
         t1 = now_sec();
 
@@ -2121,6 +2163,13 @@ public:
 
             }
 
+            // Publish relocalization status
+            {
+              std_msgs::msg::Float64MultiArray msg;
+              msg.data = {(double)id, search_result.second, drift_p, isPush ? 1.0 : 0.0};
+              pub_reloc_status->publish(msg);
+            }
+
             if(isPush)
             {
               match_num++;
@@ -2582,6 +2631,7 @@ public:
 
       vector<Keyframe*> &smps = *multimap_keyframes[smp_mp];
       int total_ba = 0;
+
       if(gba_flag == 1 && smp_mp >= cnct_map.back() && gba_size <= buf_base)
       {
         printf("gba_flag enter: %d\n", gba_flag);
@@ -2638,11 +2688,6 @@ public:
         gba_edges2.edges.clear(); gba_edges2.mates.clear();
         HBA_add_edge(xs, gba_submaps, gba_edges2, cnct_map, total_max_iter, thread_num);
 
-        if(is_finish)
-        {
-          for(int i=0; i<gba_submaps.size(); i++)
-            delete gba_submaps[i];
-        }
         gba_submaps.clear();
 
         malloc_trim(0);
@@ -2679,7 +2724,7 @@ int main(int argc, char **argv)
 
   rclcpp::NodeOptions options;
   options.parameter_overrides({rclcpp::Parameter("use_sim_time", use_sim_time)});
-  g_node = std::make_shared<rclcpp::Node>("cmn_voxel", options);
+  g_node = std::make_shared<rclcpp::Node>("voxel_slam", options);
 
   RCLCPP_INFO(g_node->get_logger(), "VoxelSLAM use_sim_time: %s", use_sim_time ? "true" : "false");
 
@@ -2690,6 +2735,7 @@ int main(int argc, char **argv)
   pub_test = g_node->create_publisher<sensor_msgs::msg::PointCloud2>("/map_test", 100);
   pub_curr_path = g_node->create_publisher<sensor_msgs::msg::PointCloud2>("/map_path", 100);
   pub_prev_path = g_node->create_publisher<sensor_msgs::msg::PointCloud2>("/map_true", 100);
+  pub_reloc_status = g_node->create_publisher<std_msgs::msg::Float64MultiArray>("/voxel_slam/reloc_status", 10);
   tf_broadcaster = std::make_shared<tf2_ros::TransformBroadcaster>(g_node);
 
   VOXEL_SLAM vs(g_node);
