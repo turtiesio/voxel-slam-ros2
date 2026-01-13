@@ -18,23 +18,51 @@ public:
     return inst;
   }
 
+  // map → odom transform (updated on relocalization)
+  Eigen::Quaterniond q_map_odom = Eigen::Quaterniond::Identity();
+  Eigen::Vector3d t_map_odom = Eigen::Vector3d::Zero();
+
   void pub_odom_func(IMUST &xc)
   {
-    Eigen::Quaterniond q_this(xc.R);
-    Eigen::Vector3d t_this = xc.p;
+    Eigen::Quaterniond q_pose(xc.R);
+    Eigen::Vector3d t_pose = xc.p;
+    auto now = g_node->now();
 
-    geometry_msgs::msg::TransformStamped transform_stamped;
-    transform_stamped.header.stamp = g_node->now();
-    transform_stamped.header.frame_id = "camera_init";
-    transform_stamped.child_frame_id = "aft_mapped";
-    transform_stamped.transform.translation.x = t_this.x();
-    transform_stamped.transform.translation.y = t_this.y();
-    transform_stamped.transform.translation.z = t_this.z();
-    transform_stamped.transform.rotation.w = q_this.w();
-    transform_stamped.transform.rotation.x = q_this.x();
-    transform_stamped.transform.rotation.y = q_this.y();
-    transform_stamped.transform.rotation.z = q_this.z();
-    tf_broadcaster->sendTransform(transform_stamped);
+    // 1. Publish map → odom (relocalization correction)
+    geometry_msgs::msg::TransformStamped tf_map_odom;
+    tf_map_odom.header.stamp = now;
+    tf_map_odom.header.frame_id = "map";
+    tf_map_odom.child_frame_id = "odom";
+    tf_map_odom.transform.translation.x = t_map_odom.x();
+    tf_map_odom.transform.translation.y = t_map_odom.y();
+    tf_map_odom.transform.translation.z = t_map_odom.z();
+    tf_map_odom.transform.rotation.w = q_map_odom.w();
+    tf_map_odom.transform.rotation.x = q_map_odom.x();
+    tf_map_odom.transform.rotation.y = q_map_odom.y();
+    tf_map_odom.transform.rotation.z = q_map_odom.z();
+
+    // 2. Publish camera_init → aft_mapped (backward compatibility)
+    geometry_msgs::msg::TransformStamped tf_legacy;
+    tf_legacy.header.stamp = now;
+    tf_legacy.header.frame_id = "camera_init";
+    tf_legacy.child_frame_id = "aft_mapped";
+    tf_legacy.transform.translation.x = t_pose.x();
+    tf_legacy.transform.translation.y = t_pose.y();
+    tf_legacy.transform.translation.z = t_pose.z();
+    tf_legacy.transform.rotation.w = q_pose.w();
+    tf_legacy.transform.rotation.x = q_pose.x();
+    tf_legacy.transform.rotation.y = q_pose.y();
+    tf_legacy.transform.rotation.z = q_pose.z();
+
+    // odom → base_link is NOT published (external wheel/IMU handles it)
+    tf_broadcaster->sendTransform({tf_map_odom, tf_legacy});
+  }
+
+  void set_map_odom_transform(const Eigen::Matrix3d &R, const Eigen::Vector3d &t)
+  {
+    q_map_odom = Eigen::Quaterniond(R);
+    t_map_odom = t;
+    RCLCPP_INFO(g_node->get_logger(), "map→odom transform updated: t=(%.2f, %.2f, %.2f)", t.x(), t.y(), t.z());
   }
 
   void pub_localtraj(PLV(3) &pwld, double jour, IMUST &x_curr, int cur_session, pcl::PointCloud<PointType> &pcl_path)
@@ -2194,6 +2222,24 @@ public:
             {
               match_num++;
               lp_edges.push(id, cur_id, ord_bl, buf_base-1, loop_transform.second, loop_transform.first, v6_init);
+
+              // Update map → odom transform on cross-session loop closure
+              if(id != cur_id)
+              {
+                // T_map_base = matched keyframe pose transformed by loop_transform
+                Eigen::Matrix3d R_map_base = xx.R * loop_transform.second;
+                Eigen::Vector3d t_map_base = xx.R * loop_transform.first + xx.p;
+                // T_odom_base = current pose
+                Eigen::Matrix3d R_odom_base = xc.R;
+                Eigen::Vector3d t_odom_base = xc.p;
+                // T_map_odom = T_map_base * T_odom_base^(-1)
+                Eigen::Matrix3d R_odom_base_inv = R_odom_base.transpose();
+                Eigen::Vector3d t_odom_base_inv = -R_odom_base_inv * t_odom_base;
+                Eigen::Matrix3d R_map_odom = R_map_base * R_odom_base_inv;
+                Eigen::Vector3d t_map_odom = R_map_base * t_odom_base_inv + t_map_base;
+                ResultOutput::instance().set_map_odom_transform(R_map_odom, t_map_odom);
+              }
+
               if(step > -1)
               {
                 int id1 = stepsizes[step] + ord_bl;

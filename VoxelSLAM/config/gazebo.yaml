@@ -1,0 +1,57 @@
+/**:
+  ros__parameters:
+    General:
+      lid_topic: "/sensor/lidar/main/points"
+      imu_topic: "/sensor/lidar/main/imu"
+      imu_acc_unit_is_g: false  # Gazebo outputs m/s^2
+      save_path: "/tmp/voxelslam/"
+      previous_map: ""
+      bagname: "gazebo_sim"
+      lidar_type: 6  # GAZEBO
+      blind: 0.5
+      point_filter_num: 3
+      extrinsic_tran: [0.0, 0.0, 0.0]
+      extrinsic_rota: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
+      is_save_map: 0
+      export_pcd_resolution: 0.1
+
+    Odometry:
+      cov_gyr: 0.1
+      cov_acc: 1.0
+      rdw_gyr: 0.0001
+      rdw_acc: 0.0001
+      down_size: 0.1
+      dept_err: 0.02
+      beam_err: 0.05
+      voxel_size: 1.0
+      min_eigen_value: 0.0025
+      degrade_bound: 10
+      point_notime: 0
+
+    LocalBA:
+      win_size: 10
+      max_layer: 2
+      cov_gyr: 0.01
+      cov_acc: 2.0
+      rdw_gyr: 0.0001
+      rdw_acc: 0.0001
+      min_ba_point: 1
+      plane_eigen_value_thre: [4.0, 4.0, 4.0, 4.0]
+      imu_coef: 0.0002
+      thread_num: 5
+
+    Loop:
+      jud_default: 0.45
+      icp_eigval: 9.0
+      ratio_drift: 0.01
+      curr_halt: 10
+      prev_halt: 10
+      acsize: 2
+      mgsize: 2
+      isHighFly: 0
+
+    GBA:
+      voxel_size: 2.0
+      min_eigen_value: 0.01
+      eigen_value_array: [4.0, 4.0, 4.0, 4.0]
+      total_max_iter: 6

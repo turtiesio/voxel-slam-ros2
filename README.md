@@ -4,7 +4,7 @@
 
 ## Changes from Original
 
-- Ported from ROS1 (Noetic) to ROS2 (Humble)
+- Ported from ROS1 (Noetic) to ROS2 (Humble/Jazzy)
 - Converted launch files from `.launch` (XML) to `.launch.py` (Python)
 - Updated message types and APIs for ROS2 compatibility
 - Replaced `rosparam` with ROS2 parameter system
@@ -13,6 +13,8 @@
 - Improved logging: replaced `printf` with ROS2 logging (`RCLCPP_INFO/WARN/ERROR/FATAL`)
 - Removed silent exits: all failure cases now log detailed error messages before exiting
 - Added merged PCD export: automatically saves a single merged point cloud file on shutdown
+- Added Gazebo simulation support (`lidar_type: 6`)
+- Added Nav2-compatible TF publishing (`map → odom`)
 
 ---
 
@@ -174,7 +176,41 @@ ros2 launch voxel_slam vxlm_mid360.launch.py
 ros2 bag play jungle_challenge --start-paused
 ```
 
-### 4.5 Others
+### 4.5 Gazebo Simulation
+
+VoxelSLAM supports Gazebo simulation with GPU LiDAR sensors.
+
+```bash
+# Start Gazebo simulation first (e.g., hardware_sim.launch.py)
+# Then launch VoxelSLAM with Gazebo config
+ros2 launch voxel_slam vxlm_gazebo.launch.py
+```
+
+**Configuration (`config/gazebo.yaml`):**
+
+```yaml
+General:
+  lid_topic: "/sensor/lidar/main/points"
+  imu_topic: "/sensor/lidar/main/imu"
+  imu_acc_unit_is_g: false  # Gazebo outputs m/s^2
+  lidar_type: 6             # GAZEBO
+```
+
+The Gazebo handler computes per-point timestamps from angular position since Gazebo GPU LiDAR doesn't provide them.
+
+### 4.6 Supported LiDAR Types
+
+| Type | Value | Description |
+|------|-------|-------------|
+| LIVOX | 0 | Livox LiDARs (CustomMsg) |
+| VELODYNE | 1 | Velodyne LiDARs |
+| OUSTER | 2 | Ouster LiDARs |
+| HESAI | 3 | Hesai LiDARs (XT32, etc.) |
+| ROBOSENSE | 4 | RoboSense LiDARs |
+| TARTANAIR | 5 | TartanAir dataset (XYZ only) |
+| GAZEBO | 6 | Gazebo GPU LiDAR simulation |
+
+### 4.7 Others
 
 Other types of LiDAR will be released later.
 
@@ -201,7 +237,36 @@ save_path/
 └── edge.txt                        # Loop closure edges
 ```
 
-## 6. VoxelSLAMPointCloud2
+## 6. TF Frames
+
+VoxelSLAM publishes TF transforms compatible with Nav2 navigation stack.
+
+### Published Transforms
+
+| Parent | Child | Description |
+|--------|-------|-------------|
+| `map` | `odom` | Relocalization correction (updated on cross-session loop closure) |
+| `camera_init` | `aft_mapped` | Current pose in local frame (backward compatibility) |
+
+### TF Tree Structure (Nav2 Compatible)
+
+```
+map
+ └── odom                    ← Published by VoxelSLAM (relocalization)
+      └── base_link          ← Published by external odometry (wheel/IMU)
+```
+
+### Behavior
+
+- **Before relocalization**: `map → odom` is identity transform
+- **After relocalization**: When a cross-session loop closure is detected, VoxelSLAM computes and publishes the `map → odom` correction transform
+- **External odometry**: VoxelSLAM does NOT publish `odom → base_link`. This should be provided by wheel encoders, IMU, or other odometry sources.
+
+### Integration with Nav2
+
+For Nav2 integration, ensure your robot publishes `odom → base_link` from wheel/IMU odometry. VoxelSLAM will provide the `map → odom` transform when it localizes against a previously built map.
+
+## 7. VoxelSLAMPointCloud2
 
 **VoxelSLAMPointCloud2**: A customized plugin for RViz. It has the same usage to original "PointCloud2" in RViz, but it can **clear the point cloud map automatically** when receiving an empty point cloud, with any **Decay Time** of the plugin.
 

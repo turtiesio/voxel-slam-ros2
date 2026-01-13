@@ -9,7 +9,7 @@
 typedef pcl::PointXYZINormal PointType;
 using namespace std;
 
-enum LID_TYPE{LIVOX, VELODYNE, OUSTER, HESAI, ROBOSENSE, TARTANAIR};
+enum LID_TYPE{LIVOX, VELODYNE, OUSTER, HESAI, ROBOSENSE, TARTANAIR, GAZEBO};
 
 namespace velodyne_ros {
   struct EIGEN_ALIGN16 Point {
@@ -136,9 +136,13 @@ public:
       tartanair_handler(msg, pl_full);
       break;
 
+    case GAZEBO:
+      gazebo_handler(msg, pl_full);
+      break;
+
     default:
       RCLCPP_FATAL(rclcpp::get_logger("voxelslam"),
-                   "Unknown lidar_type: %d. Valid types: 0=LIVOX, 1=VELODYNE, 2=OUSTER, 3=HESAI, 4=ROBOSENSE, 5=TARTANAIR",
+                   "Unknown lidar_type: %d. Valid types: 0=LIVOX, 1=VELODYNE, 2=OUSTER, 3=HESAI, 4=ROBOSENSE, 5=TARTANAIR, 6=GAZEBO",
                    lidar_type);
       exit(1);
     }
@@ -370,6 +374,65 @@ public:
     }
 
     return;
+  }
+
+  void gazebo_handler(const sensor_msgs::msg::PointCloud2::SharedPtr &msg, pcl::PointCloud<PointType> &pl_full)
+  {
+    // Gazebo GPU Lidar outputs PointXYZI without per-point timestamps
+    // Compute time based on angular position (clockwise rotation)
+    pcl::PointCloud<pcl::PointXYZI> pl_orig;
+    pcl::fromROSMsg(*msg, pl_orig);
+
+    int plsize = pl_orig.size();
+    if(plsize == 0) return;
+    pl_full.reserve(plsize);
+
+    // Compute time from angular position (like velodyne fallback)
+    bool first_point = true;
+    double yaw_first = 0;
+    double yaw_last = 0;
+    double yaw_bias = 0;
+    int cool = 0;
+
+    for(int i=0; i<plsize; i++)
+    {
+      cool--;
+      pcl::PointXYZI &iter = pl_orig[i];
+      PointType ap;
+      ap.x = iter.x; ap.y = iter.y; ap.z = iter.z;
+      ap.intensity = iter.intensity;
+
+      if(fabs(ap.x) < 0.01 && fabs(ap.y) < 0.01)
+        continue;
+
+      double yaw_angle = atan2(ap.y, ap.x) * 57.2957 - yaw_bias;
+      if(first_point)
+      {
+        yaw_first = yaw_angle;
+        yaw_last  = yaw_angle;
+        first_point = false;
+      }
+
+      if(ap.x*ap.x + ap.y*ap.y + ap.z*ap.z < blind)
+        continue;
+
+      if(yaw_angle - yaw_last > 180 && cool <= 0)
+      {
+        yaw_bias += 360; yaw_angle -= 360; cool = 1000;
+      }
+
+      if(fabs(yaw_angle - yaw_last) > 180)
+      {
+        yaw_angle += 360;
+      }
+
+      ap.curvature = (yaw_first - yaw_angle) / omega_l;
+      yaw_last = yaw_angle;
+
+      if(ap.curvature >= 0 && ap.curvature < 0.1)
+        if(i % point_filter_num == 0)
+          pl_full.push_back(ap);
+    }
   }
 
 };
