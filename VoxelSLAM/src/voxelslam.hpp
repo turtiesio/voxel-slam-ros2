@@ -45,7 +45,7 @@ inline double now_sec() {
 template <typename T>
 void pub_pl_func(T &pl, rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr &pub)
 {
-  if (!pub) return;
+  if (!pub || !rclcpp::ok()) return;
   pl.height = 1; pl.width = pl.size();
   sensor_msgs::msg::PointCloud2 output;
   pcl::toROSMsg(pl, output);

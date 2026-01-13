@@ -23,7 +23,7 @@ public:
 
   void pub_odom_func(IMUST &xc)
   {
-    if (!tf_broadcaster || !g_node) return;
+    if (!tf_broadcaster || !g_node || !rclcpp::ok()) return;
 
     Eigen::Quaterniond q_this(xc.R);
     Eigen::Vector3d t_this = xc.p;
@@ -44,7 +44,7 @@ public:
 
   void pub_map_transform(IMUST &dx)
   {
-    if (!tf_broadcaster || !g_node) return;
+    if (!tf_broadcaster || !g_node || !rclcpp::ok()) return;
 
     Eigen::Quaterniond q(dx.R);
 
@@ -1934,7 +1934,17 @@ public:
     FileReaderWriter::instance().previous_map_names(node, sessionNames, juds);
     FileReaderWriter::instance().pgo_edges_io(lp_edges, sessionNames, 0, savepath, bagname);
     FileReaderWriter::instance().previous_map_read(std_managers, multimap_scanPoses, multimap_keyframes, config_setting, lp_edges, node, sessionNames, juds, savepath, win_size);
-    
+
+    // Log loaded previous sessions
+    printf("[Loop] Loaded %zu previous sessions\n", sessionNames.size());
+    for(size_t i = 0; i < sessionNames.size(); i++)
+    {
+      size_t kf_count = multimap_keyframes.size() > i ? multimap_keyframes[i]->size() : 0;
+      size_t sp_count = multimap_scanPoses.size() > i ? multimap_scanPoses[i]->size() : 0;
+      printf("[Loop]   Session %zu '%s': %zu keyframes, %zu scanPoses\n",
+             i, sessionNames[i].c_str(), kf_count, sp_count);
+    }
+
     STDescManager *std_manager = new STDescManager(config_setting);
     sessionNames.push_back(bagname);
     std_managers.push_back(std_manager);
@@ -2084,6 +2094,13 @@ public:
       keyframes->push_back(smp);
       mtx_keyframe.unlock();
 
+      // Periodic status log for loop closure
+      if(keyframes->size() % 5 == 0 || keyframes->size() <= 3)
+      {
+        printf("[Loop] keyframes: %zu, scanPoses: %zu, sessions: %zu\n",
+               keyframes->size(), scanPoses->size(), std_managers.size());
+      }
+
       vector<STD> stds_vec;
       std_manager->GenerateSTDescs(plbtc, stds_vec, buf_base-1);
       pair<int, double> search_result(-1, 0);
@@ -2098,8 +2115,8 @@ public:
 
         if(search_result.first >= 0)
         {
-          printf("Find Loop in session%d: %d %d\n", id, buf_base, search_result.first);
-          printf("score: %lf\n", search_result.second);
+          printf("[Loop] Found in session%d: kf%d <-> kf%d, score=%.3f (thresh=%.3f)\n",
+                 id, buf_base-1, search_result.first, search_result.second, juds[id]);
         }
 
         if(search_result.first >= 0 && search_result.second > juds[id])
@@ -2164,6 +2181,7 @@ public:
             }
 
             // Publish relocalization status
+            if(pub_reloc_status && rclcpp::ok())
             {
               std_msgs::msg::Float64MultiArray msg;
               msg.data = {(double)id, search_result.second, drift_p, isPush ? 1.0 : 0.0};
@@ -2318,16 +2336,23 @@ public:
       build_graph(initial, graph, cur_id, lp_edges, odom_noise, ids, stepsizes, 0);
 
       topDownProcess(initial, graph, ids, stepsizes);
+      printf("[FINISH] topDownProcess completed\n");
     }
 
+    printf("[FINISH] Saving map (is_save_map=%d)...\n", is_save_map);
     if(is_save_map)
     {
       for(int i=0; i<ids.size(); i++)
+      {
+        printf("[FINISH] Saving alidarState.txt for session %d\n", i);
         FileReaderWriter::instance().save_pose(*(multimap_scanPoses[ids[i]]), sessionNames[ids[i]], "/alidarState.txt", savepath);
+      }
 
       FileReaderWriter::instance().pgo_edges_io(lp_edges, sessionNames, 1, savepath, bagname);
+      printf("[FINISH] pgo_edges saved\n");
     }
 
+    printf("[FINISH] Cleaning up memory...\n");
     for(int i=0; i<multimap_scanPoses.size(); i++)
     {
       for(int j=0; j<multimap_scanPoses[i]->size(); j++)
@@ -2340,6 +2365,7 @@ public:
     }
     
     malloc_trim(0);
+    printf("[FINISH] thd_loop_closure exiting\n");
   }
 
   // The top down process of HBA
@@ -2357,8 +2383,20 @@ public:
     pub_pl_func(pl0, pub_scan);
 
     double t0 = now_sec();
-    while(gba_flag);
-    
+    // Wait for GBA with timeout (prevents deadlock when conditions not met)
+    double gba_timeout = 60.0;  // seconds
+    while(gba_flag)
+    {
+      usleep(100000);  // 100ms
+      if(now_sec() - t0 > gba_timeout)
+      {
+        printf("[WARN] GBA timeout after %.0fs, skipping GBA\n", gba_timeout);
+        gba_flag = 0;
+        break;
+      }
+    }
+    printf("[topDown] GBA wait done (%.1fs), processing edges...\n", now_sec() - t0);
+
     for(PGO_Edge &edge: gba_edges1.edges)
     {
       vector<int> step(2);
@@ -2620,8 +2658,29 @@ public:
 
     while(rclcpp::ok())
     {
+      // Exit when finish is complete AND GBA has been processed
+      // Wait for gba_flag to become 1 (topDownProcess sets it), then wait for it to become 0 (GBA done)
+      static std::atomic<bool> gba_was_requested{false};
+      if(gba_flag == 1) gba_was_requested.store(true);
+
+      if(g_is_finish.load() && gba_was_requested.load() && gba_flag == 0)
+      {
+        printf("[GBA] Finish complete, thd_globalmapping exiting\n");
+        break;
+      }
+
+      // Handle finish when no keyframes - mark as requested and exit
       if(multimap_keyframes.empty())
       {
+        if(g_is_finish.load())
+        {
+          if(gba_flag == 1)
+          {
+            printf("[WARN] Finish requested but no keyframes, releasing gba_flag\n");
+            gba_flag = 0;
+          }
+          gba_was_requested.store(true);  // Allow exit even without GBA
+        }
         sleep(0.1); continue;
       }
 
@@ -2632,9 +2691,28 @@ public:
       vector<Keyframe*> &smps = *multimap_keyframes[smp_mp];
       int total_ba = 0;
 
-      if(gba_flag == 1 && smp_mp >= cnct_map.back() && gba_size <= buf_base)
+      // GBA trigger condition:
+      // - Normal: gba_flag==1 && smp_mp >= cnct_map.back() && gba_size <= buf_base
+      // - Finish: gba_flag==1 (bypass data conditions, use existing submaps)
+      bool gba_normal_cond = (gba_flag == 1 && smp_mp >= cnct_map.back() && gba_size <= buf_base);
+      bool gba_finish_cond = (gba_flag == 1 && g_is_finish.load());
+
+      // Handle finish with no submaps - skip GBA but release flag
+      if(gba_finish_cond && gba_submaps.empty())
       {
-        printf("gba_flag enter: %d\n", gba_flag);
+        printf("[WARN] GBA requested on finish but no submaps available, skipping\n");
+        printf("[DEBUG] smp_mp=%d, buf_base=%d, keyframes=%zu\n",
+               smp_mp, buf_base, multimap_keyframes[smp_mp]->size());
+        gba_flag = 0;
+        continue;
+      }
+
+      if(gba_normal_cond || gba_finish_cond)
+      {
+        if(gba_finish_cond && !gba_normal_cond)
+          printf("gba_flag enter (finish mode): %d, submaps: %zu\n", gba_flag, gba_submaps.size());
+        else
+          printf("gba_flag enter: %d\n", gba_flag);
         total_ba = 1;
       }
       else if(smps.size() <= buf_base)
@@ -2674,6 +2752,8 @@ public:
       gba_smp->id = smp_local[0]->id;
       gba_smp->mp = smp_mp;
       gba_submaps.push_back(gba_smp);
+      printf("[GBA] submap added, total: %zu, buf_base: %d, keyframes: %zu\n",
+             gba_submaps.size(), buf_base, multimap_keyframes[smp_mp]->size());
 
       if(total_ba == 1)
       {
@@ -2691,6 +2771,7 @@ public:
         gba_submaps.clear();
 
         malloc_trim(0);
+        printf("[GBA] GBA complete, releasing gba_flag\n");
         gba_flag = 0;
       }
       else if(smp_flag == 1 && multimap_keyframes[smp_mp]->size() <= buf_base)
@@ -2743,13 +2824,37 @@ int main(int argc, char **argv)
   for(int i=0; i<vs.win_size; i++)
     mp[i] = i;
 
+  // Publish initial TFs to connect the TF tree before odometry starts
+  // This ensures TF frames are connected even before first data arrives
+  {
+    IMUST identity;  // Default IMUST is identity
+    ResultOutput::instance().pub_odom_func(identity);   // camera_init -> aft_mapped
+    ResultOutput::instance().pub_map_transform(identity); // map -> slam_origin
+    RCLCPP_INFO(g_node->get_logger(), "Initial TFs published (identity)");
+  }
+
   thread thread_loop(&VOXEL_SLAM::thd_loop_closure, &vs, g_node);
   thread thread_gba(&VOXEL_SLAM::thd_globalmapping, &vs, g_node);
   vs.thd_odometry_localmapping(g_node);
 
   g_is_finish.store(true);
-  thread_loop.join();
-  thread_gba.join();
+
+  // Join threads in separate thread so we can keep spinning
+  std::atomic<bool> threads_done{false};
+  std::thread join_thread([&]() {
+    thread_loop.join();
+    thread_gba.join();
+    threads_done.store(true);
+  });
+
+  // Keep spinning until threads are done (prevents "cannot publish data" errors)
+  while(rclcpp::ok() && !threads_done.load())
+  {
+    rclcpp::spin_some(g_node);
+    usleep(10000);  // 10ms
+  }
+
+  join_thread.join();
   rclcpp::shutdown();
   return 0;
 }
