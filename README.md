@@ -10,6 +10,8 @@
 - Replaced `rosparam` with ROS2 parameter system
 - Added `General.imu_acc_unit_is_g` parameter (moved from `Odometry.acc_unit_is_g`)
 - Compatible with [livox_ros_driver2](https://github.com/Livox-SDK/livox_ros_driver2)
+- Improved logging: replaced `printf` with ROS2 logging (`RCLCPP_INFO/WARN/ERROR/FATAL`)
+- Removed silent exits: all failure cases now log detailed error messages before exiting
 
 ---
 
@@ -71,7 +73,7 @@ In the elevator, the system continues to restart until stepping out of the eveva
 After the rosbag is done, your may find the map is inconsistent as shown in the video. Run
 
 ```bash
-ros2 param set /voxel_slam finish true
+ros2 param set /voxelslam finish true
 ```
 
 to launch the final global mapping (global bundle adjustment) to refine the global map.

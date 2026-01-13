@@ -9,6 +9,7 @@
 #include <mutex>
 #include <chrono>
 #include <fstream>
+#include <rclcpp/rclcpp.hpp>
 
 struct pointVar 
 {
@@ -343,7 +344,11 @@ public:
     int g_size = voxhess.plvec_voxels.size();
     if(g_size < thd_num)
     {
-      printf("Too Less Voxel"); exit(0);
+      RCLCPP_FATAL(rclcpp::get_logger("voxelslam"),
+                   "Too few voxels for optimization: %d < %d threads", g_size, thd_num);
+      RCLCPP_FATAL(rclcpp::get_logger("voxelslam"),
+                   "This may indicate insufficient LiDAR data or incorrect parameters.");
+      exit(1);
     }
     vector<thread*> mthreads(thd_num, nullptr);
     double part = 1.0 * g_size / thd_num;
@@ -1209,8 +1214,10 @@ public:
 
       if(opt_state >= int(vox_opt.pcr_adds.size()))
       {
-        printf("Error: opt_state: %d %zu\n", opt_state, vox_opt.pcr_adds.size());
-        exit(0);
+        RCLCPP_FATAL(rclcpp::get_logger("voxelslam"),
+                     "opt_state index out of bounds: %d >= pcr_adds.size()=%zu",
+                     opt_state, vox_opt.pcr_adds.size());
+        exit(1);
       }
 
       if(opt_state >= 0)
@@ -1689,7 +1696,9 @@ int match(unordered_map<VOXEL_LOC, OctoTree*> &feat_map, Eigen::Vector3d &wld, P
     // iter->second->match_end(pv, pla, max_prob);
     if(flag && pla==nullptr)
     {
-      printf("pla null max_prob: %lf %ld %ld %ld\n", max_prob, iter->first.x, iter->first.y, iter->first.z);
+      RCLCPP_WARN(rclcpp::get_logger("voxelslam"),
+                  "pla null max_prob: %.4f pos=(%ld,%ld,%ld)",
+                  max_prob, iter->first.x, iter->first.y, iter->first.z);
     }
   }
 

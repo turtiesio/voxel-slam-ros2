@@ -298,7 +298,7 @@ public:
       
       if(strs.size() != 2)
       {
-        printf("previous map name wrong\n");
+        RCLCPP_ERROR(n->get_logger(), "Invalid previous_map format: '%s'. Expected 'name:threshold' (e.g., 'map1:0.45')", str.c_str());
         return;
       }
 
@@ -453,7 +453,7 @@ public:
     ResultOutput::instance().pub_global_path(multimap_scanPoses, pub_prev_path, ids_all);
     ResultOutput::instance().pub_globalmap(multimap_keyframes, ids_all, pub_pmap);
 
-    printf("All the maps are loaded\n");
+    RCLCPP_INFO(n->get_logger(), "All previous maps loaded successfully (%zu sessions)", fnames.size());
   }
   
 };
@@ -894,13 +894,15 @@ public:
 
     if(ss != 0 && is_save_map == 1)
     {
-      printf("The pointcloud will be saved in this run.\n");
-      printf("So please clear or rename the existed folder.\n"); 
-      exit(0);
+      RCLCPP_FATAL(n->get_logger(), "Cannot create save directory: %s%s/", savepath.c_str(), bagname.c_str());
+      RCLCPP_FATAL(n->get_logger(), "The pointcloud will be saved in this run. Please clear or rename the existing folder.");
+      rclcpp::shutdown();
+      exit(1);
     }
 
     sws.resize(thread_num);
-    cout << "bagname: " << bagname << endl;
+    RCLCPP_INFO(n->get_logger(), "VoxelSLAM initialized - session: %s, lidar_type: %d, win_size: %d",
+                bagname.c_str(), feat.lidar_type, win_size);
   }
 
   // The point-to-plane alignment for odometry
@@ -1286,7 +1288,10 @@ public:
 
     pcl::PointCloud<PointType>::Ptr orig(new pcl::PointCloud<PointType>(*pcl_curr));
     if(odom_ekf.process(x_curr, *pcl_curr, imus) == 0)
+    {
+      RCLCPP_DEBUG(g_node->get_logger(), "IMU processing not ready during initialization (collecting samples)");
       return 0;
+    }
 
     if(win_count == 0)
       imupre_scale_gravity = odom_ekf.scale_gravity;
@@ -1332,7 +1337,11 @@ public:
       is_success = Initialization::instance().motion_init(pl_origs, vec_imus, beg_times, &hess, voxhess, x_buf, surf_map, surf_map_slide, pvec_buf, win_size, sws, x_curr, imu_pre_buf, extrin_para);
 
       if(is_success == 0)
+      {
+        RCLCPP_WARN(g_node->get_logger(), "Motion initialization failed - system will reset and retry");
         return -1;
+      }
+      RCLCPP_INFO(g_node->get_logger(), "Motion initialization successful!");
       return 1;
     }
     return 0;
@@ -1623,7 +1632,11 @@ public:
       else
       {
         if(odom_ekf.process(x_curr, *pcl_curr, imus) == 0)
+        {
+          RCLCPP_DEBUG_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 5000,
+                                "IMU EKF processing skipped (waiting for more samples)");
           continue;
+        }
 
         pcl::PointCloud<PointType> pl_down = *pcl_curr;
         down_sampling_voxel(pl_down, down_size);
@@ -1671,6 +1684,8 @@ public:
 
         if(degrade_cnt > degrade_bound)
         {
+          RCLCPP_WARN(g_node->get_logger(), "Odometry degradation detected (count=%d > bound=%d) - resetting system",
+                      degrade_cnt, degrade_bound);
           degrade_cnt = 0;
           system_reset(imus);
 
@@ -1948,6 +1963,7 @@ public:
 
       if(is_finish && buf_lba2loop.empty())
       {
+        RCLCPP_INFO(g_node->get_logger(), "Loop closure thread exiting");
         break;
       }
 
@@ -2050,8 +2066,8 @@ public:
 
         if(search_result.first >= 0)
         {
-          printf("Find Loop in session%d: %d %d\n", id, buf_base, search_result.first);
-          printf("score: %lf\n", search_result.second);
+          RCLCPP_INFO(g_node->get_logger(), "Loop candidate in session %d: current=%d, match=%d, score=%.3f",
+                      id, buf_base, search_result.first, search_result.second);
         }
 
         if(search_result.first >= 0 && search_result.second > juds[id])
@@ -2068,7 +2084,7 @@ public:
             if(id == cur_id)
             {
               double span = smp->jour - keyframes->at(search_result.first)->jour;
-              printf("drift: %lf %lf\n", drift_p, span);
+              RCLCPP_DEBUG(g_node->get_logger(), "Same-session loop: drift=%.3f, span=%.1f", drift_p, span);
 
               if(drift_p / span < ratio_drift)
               {
@@ -2088,7 +2104,7 @@ public:
                 if(id == ids[i]) 
                   step = i;
               
-              printf("drift: %lf %lf\n", drift_p, jours[id]);
+              RCLCPP_DEBUG(g_node->get_logger(), "Cross-session loop: drift=%.3f, journey=%.1f", drift_p, jours[id]);
 
               if(step == -1)
               {
@@ -2124,7 +2140,8 @@ public:
                 int id1 = stepsizes[step] + ord_bl;
                 int id2 = stepsizes.back() - 1;
                 add_edge(id1, id2, loop_transform.second, loop_transform.first, graph, odom_noise);
-                printf("addedge: (%d %d) (%d %d)\n", id, cur_id, ord_bl, buf_base-1);
+                RCLCPP_INFO(g_node->get_logger(), "Loop edge added: session (%d->%d), keyframe (%d->%d)",
+                            id, cur_id, ord_bl, buf_base-1);
               }
             }
 
@@ -2254,9 +2271,10 @@ public:
         relc_counts.pop_back();
       }
 
-      if(multimap_keyframes.empty()) 
+      if(multimap_keyframes.empty())
       {
-        printf("no data\n"); return;
+        RCLCPP_WARN(g_node->get_logger(), "No keyframe data available for loop closure - skipping");
+        return;
       }
 
       int cur_id = std_managers.size() - 1;
@@ -2302,7 +2320,10 @@ public:
     pub_pl_func(pl0, pub_scan);
 
     double t0 = g_node->now().seconds();
-    while(gba_flag);
+    while(gba_flag)
+    {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
     
     for(PGO_Edge &edge: gba_edges1.edges)
     {
@@ -2360,7 +2381,7 @@ public:
     Eigen::Quaterniond qq(multimap_scanPoses[0]->at(0)->x.R);
 
     double t1 = g_node->now().seconds();
-    printf("GBA opt: %lfs\n", t1 - t0);
+    RCLCPP_INFO(g_node->get_logger(), "Pose graph optimization completed in %.3fs", t1 - t0);
 
     for(int ii=0; ii<idsize; ii++)
     {
@@ -2579,7 +2600,7 @@ public:
       int total_ba = 0;
       if(gba_flag == 1 && smp_mp >= cnct_map.back() && gba_size <= buf_base)
       {
-        printf("gba_flag enter: %d\n", gba_flag);
+        RCLCPP_DEBUG(g_node->get_logger(), "Entering GBA mode (gba_flag=%d)", gba_flag);
         total_ba = 1;
       }
       else if(smps.size() <= buf_base)
@@ -2622,7 +2643,7 @@ public:
 
       if(total_ba == 1)
       {
-        printf("GBAsize: %d\n", gba_size);
+        RCLCPP_INFO(g_node->get_logger(), "Starting Global Bundle Adjustment with %d keyframes", gba_size);
         vector<IMUST> xs;
         mtx_keyframe.lock();
         for(Keyframe *smp: gba_submaps)
@@ -2635,6 +2656,7 @@ public:
 
         if(is_finish)
         {
+          RCLCPP_INFO(g_node->get_logger(), "Global Bundle Adjustment completed - shutting down");
           for(int i=0; i<gba_submaps.size(); i++)
             delete gba_submaps[i];
         }
@@ -2682,13 +2704,16 @@ int main(int argc, char **argv)
   for(int i=0; i<vs.win_size; i++)
     mp[i] = i;
 
+  RCLCPP_INFO(g_node->get_logger(), "Starting VoxelSLAM threads...");
   std::thread thread_loop(&VOXEL_SLAM::thd_loop_closure, &vs, std::ref(g_node));
   std::thread thread_gba(&VOXEL_SLAM::thd_globalmapping, &vs, std::ref(g_node));
   vs.thd_odometry_localmapping(g_node);
 
+  RCLCPP_INFO(g_node->get_logger(), "Odometry thread finished, waiting for other threads...");
   thread_loop.join();
   thread_gba.join();
 
+  RCLCPP_INFO(g_node->get_logger(), "All threads finished. Shutting down VoxelSLAM.");
   rclcpp::shutdown();
   return 0;
 }

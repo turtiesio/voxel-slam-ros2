@@ -137,8 +137,10 @@ public:
       break;
 
     default:
-      printf("Lidar Type Error\n");
-      exit(0);
+      RCLCPP_FATAL(rclcpp::get_logger("voxelslam"),
+                   "Unknown lidar_type: %d. Valid types: 0=LIVOX, 1=VELODYNE, 2=OUSTER, 3=HESAI, 4=ROBOSENSE, 5=TARTANAIR",
+                   lidar_type);
+      exit(1);
     }
 
     return t0;

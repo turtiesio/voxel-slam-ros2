@@ -3,6 +3,7 @@
 
 #include "tools.hpp"
 #include "voxel_map.hpp"
+#include <rclcpp/rclcpp.hpp>
 
 // #include "STDesc.h"
 #include <gtsam/geometry/Pose3.h>
@@ -138,7 +139,9 @@ bool icp_normal(pcl::PointCloud<PointType> &pl_src, pcl::PointCloud<PointType> &
 
   Eigen::SelfAdjointEigenSolver<Eigen::Matrix3d> saes(mat_norm);
   Eigen::Vector3d eig_vec = saes.eigenvalues();
-  printf("eigvalue: %lf %lf %lf %d\n", eig_vec[0], eig_vec[1], eig_vec[2], is_converge);
+  RCLCPP_DEBUG(rclcpp::get_logger("voxelslam"),
+               "ICP eigvalue: %.4f %.4f %.4f, converge=%d",
+               eig_vec[0], eig_vec[1], eig_vec[2], is_converge);
   return eig_vec[0] > icp_eigval && is_converge == 1;
   // return eig_vec[0] > icp_eigval;
 

@@ -70,7 +70,7 @@ void imu_handler(const sensor_msgs::msg::Imu::SharedPtr msg_in)
     flag = 0;
     double stamp_sec = static_cast<double>(msg_in->header.stamp.sec) +
                        static_cast<double>(msg_in->header.stamp.nanosec) * 1e-9;
-    printf("Time0: %lf\n", stamp_sec);
+    RCLCPP_INFO(rclcpp::get_logger("voxelslam"), "First IMU timestamp: %.6f", stamp_sec);
   }
 
   sensor_msgs::msg::Imu::SharedPtr msg = std::make_shared<sensor_msgs::msg::Imu>(*msg_in);
@@ -122,7 +122,12 @@ bool sync_packages(pcl::PointCloud<PointType>::Ptr &pl_ptr, deque<sensor_msgs::m
 
   if(!pl_ready)
   {
-    if(pcl_buf.empty()) return false;
+    if(pcl_buf.empty())
+    {
+      RCLCPP_DEBUG_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 5000,
+                            "Waiting for pointcloud data...");
+      return false;
+    }
 
     mBuf.lock();
     pl_ptr = pcl_buf.front();
@@ -148,7 +153,14 @@ bool sync_packages(pcl::PointCloud<PointType>::Ptr &pl_ptr, deque<sensor_msgs::m
     pl_ready = true;
   }
 
-  if(!pl_ready || imu_last_time <= p_imu.pcl_end_time) return false;
+  if(!pl_ready || imu_last_time <= p_imu.pcl_end_time)
+  {
+    if(pl_ready)
+      RCLCPP_DEBUG_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 5000,
+                            "Waiting for IMU data... (imu_last=%.3f, pcl_end=%.3f)",
+                            imu_last_time, p_imu.pcl_end_time);
+    return false;
+  }
 
   mBuf.lock();
   double imu_time = get_stamp_sec(imu_buf.front()->header.stamp);
@@ -163,7 +175,9 @@ bool sync_packages(pcl::PointCloud<PointType>::Ptr &pl_ptr, deque<sensor_msgs::m
 
   if(imu_buf.empty())
   {
-    printf("imu buf empty\n"); exit(0);
+    RCLCPP_FATAL(g_node->get_logger(), "IMU buffer exhausted unexpectedly! Check IMU topic and timestamp sync.");
+    rclcpp::shutdown();
+    exit(1);
   }
 
   pl_ready = false;
@@ -171,7 +185,11 @@ bool sync_packages(pcl::PointCloud<PointType>::Ptr &pl_ptr, deque<sensor_msgs::m
   if(imus.size() > 4)
     return true;
   else
+  {
+    RCLCPP_WARN_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 5000,
+                         "Insufficient IMU samples (%zu < 5) between scans. Check IMU rate.", imus.size());
     return false;
+  }
 }
 
 double dept_err, beam_err;
@@ -233,8 +251,10 @@ void read_lidarstate(string filename, vector<ScanPose*> &bl_tem)
   ifstream file(filename);
   if(!file.is_open())
   {
-    printf("Error: %s not found\n", filename.c_str());
-    exit(0);
+    RCLCPP_FATAL(g_node->get_logger(), "Failed to open lidar state file: %s", filename.c_str());
+    RCLCPP_FATAL(g_node->get_logger(), "Please ensure the previous map files exist at the specified save_path.");
+    rclcpp::shutdown();
+    exit(1);
   }
 
   string lineStr, str;

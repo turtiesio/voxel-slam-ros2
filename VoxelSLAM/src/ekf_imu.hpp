@@ -5,6 +5,7 @@
 #include <deque>
 #include <sensor_msgs/msg/imu.hpp>
 #include <builtin_interfaces/msg/time.hpp>
+#include <rclcpp/rclcpp.hpp>
 
 inline double get_imu_stamp_sec(const builtin_interfaces::msg::Time &stamp)
 {
@@ -53,8 +54,12 @@ public:
 
     if(last_pcl_end_time - pcl_beg_time > 0.01)
     {
-      printf("%lf %lf\n", pcl_beg_time, last_pcl_end_time);
-      printf("LiDAR time regress. Please check data\n"); exit(0);
+      RCLCPP_FATAL(rclcpp::get_logger("voxelslam"),
+                   "LiDAR timestamp regression detected! pcl_beg=%.6f, last_pcl_end=%.6f",
+                   pcl_beg_time, last_pcl_end_time);
+      RCLCPP_FATAL(rclcpp::get_logger("voxelslam"),
+                   "Please check LiDAR data timestamps. Data may be corrupted or out of order.");
+      exit(1);
     }
 
     imu_poses.clear();
@@ -213,7 +218,9 @@ public:
       // If IMU acceleration is in g units, convert to m/s^2
       if(acc_unit_is_g)
         scale_gravity = G_m_s2;
-      printf("scale_gravity: %lf mean_acc_norm: %lf init_num: %d\n", scale_gravity, mean_acc.norm(), init_num);
+      RCLCPP_INFO(rclcpp::get_logger("voxelslam"),
+                  "IMU init: scale_gravity=%.4f, mean_acc_norm=%.4f, init_num=%d",
+                  scale_gravity, mean_acc.norm(), init_num);
       x_curr.g = -mean_acc * scale_gravity;
       if(init_num > min_init_num) init_flag = true;
       last_pcl_end_time = pcl_end_time;
