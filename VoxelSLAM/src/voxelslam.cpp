@@ -165,7 +165,7 @@ public:
     pub_pl_func(pl, pub_relc);
   }
 
-  void pub_globalmap(vector<vector<Keyframe*>*> &relc_submaps, vector<int> &ids, rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr &pub, double leaf_size = 0.1)
+  void pub_globalmap(vector<vector<Keyframe*>*> &relc_submaps, vector<int> &ids, rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr &pub, double leaf_size = 0.2)
   {
     pcl::PointCloud<pcl::PointXYZI>::Ptr pl(new pcl::PointCloud<pcl::PointXYZI>());
     pcl::PointXYZI pp;
@@ -1708,7 +1708,7 @@ public:
           malloc_trim(0);
         }
 
-        sleep(0.001);
+        sleep(0.01);
         continue;
       }
 

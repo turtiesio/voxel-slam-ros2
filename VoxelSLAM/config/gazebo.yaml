@@ -16,10 +16,10 @@
       export_pcd_resolution: 0.1
 
     Odometry:
-      cov_gyr: 0.1
-      cov_acc: 1.0
-      rdw_gyr: 0.0001
-      rdw_acc: 0.0001
+      cov_gyr: 0.2      # 2x mid360 - slightly less IMU trust for simulation
+      cov_acc: 2.0      # 2x mid360
+      rdw_gyr: 0.0002
+      rdw_acc: 0.0002
       down_size: 0.1
       dept_err: 0.02
       beam_err: 0.05
@@ -31,10 +31,10 @@
     LocalBA:
       win_size: 10
       max_layer: 2
-      cov_gyr: 0.01
-      cov_acc: 2.0
-      rdw_gyr: 0.0001
-      rdw_acc: 0.0001
+      cov_gyr: 0.02      # 2x mid360
+      cov_acc: 4.0       # 2x mid360
+      rdw_gyr: 0.0002
+      rdw_acc: 0.0002
       min_ba_point: 1
       plane_eigen_value_thre: [4.0, 4.0, 4.0, 4.0]
       imu_coef: 0.0002
