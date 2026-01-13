@@ -205,7 +205,13 @@ bool sync_packages(pcl::PointCloud<PointType>::Ptr &pl_ptr, deque<sensor_msgs::m
   pl_ready = false;
 
   if(imus.size() > 4)
+  {
+    if(pl_ptr->size() < 100) {
+      RCLCPP_WARN(g_node->get_logger(),
+        "[DEBUG] sync_packages: LOW POINT COUNT! pcl_size=%zu may cause issues", pl_ptr->size());
+    }
     return true;
+  }
   else
   {
     RCLCPP_WARN_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 5000,

@@ -379,25 +379,37 @@ public:
   void gazebo_handler(const sensor_msgs::msg::PointCloud2::SharedPtr &msg, pcl::PointCloud<PointType> &pl_full)
   {
     // Gazebo GPU Lidar outputs PointXYZI without per-point timestamps
-    // For GPU LiDAR, all points are captured simultaneously, so use uniform time distribution
+    // Points are in row-major order: height=vertical_layers, width=horizontal_angles
+    // Time should be based on horizontal angle only (same vertical layer = same time)
     pcl::PointCloud<pcl::PointXYZI> pl_orig;
     pcl::fromROSMsg(*msg, pl_orig);
 
     int plsize = pl_orig.size();
-    if(plsize == 0) return;
+    if(plsize == 0) {
+      RCLCPP_WARN(rclcpp::get_logger("voxelslam"), "[DEBUG] Gazebo LiDAR: received EMPTY pointcloud!");
+      return;
+    }
     pl_full.reserve(plsize);
 
-    // GPU LiDAR captures all points at once - distribute time uniformly across scan
+    // GPU LiDAR captures all points at once - distribute time based on horizontal angle
     // Assume 10Hz scan rate = 0.1s per scan
     const double scan_period = 0.1;
+    const uint32_t width = msg->width;   // horizontal resolution (e.g., 360)
+    const uint32_t height = msg->height; // vertical layers (e.g., 56)
+
+    int nan_count = 0;
+    int blind_count = 0;
+    int filter_count = 0;
 
     for(int i=0; i<plsize; i++)
     {
       pcl::PointXYZI &iter = pl_orig[i];
 
       // Skip NaN/Inf points
-      if(!std::isfinite(iter.x) || !std::isfinite(iter.y) || !std::isfinite(iter.z))
+      if(!std::isfinite(iter.x) || !std::isfinite(iter.y) || !std::isfinite(iter.z)) {
+        nan_count++;
         continue;
+      }
 
       PointType ap;
       ap.x = iter.x; ap.y = iter.y; ap.z = iter.z;
@@ -405,19 +417,27 @@ public:
       ap.normal_x = 0; ap.normal_y = 0; ap.normal_z = 0;
 
       // Skip points too close to origin
-      if(ap.x*ap.x + ap.y*ap.y + ap.z*ap.z < blind)
+      double dist_sq = ap.x*ap.x + ap.y*ap.y + ap.z*ap.z;
+      if(dist_sq < blind) {
+        blind_count++;
         continue;
+      }
 
-      // Uniform time distribution based on point index
-      ap.curvature = (static_cast<double>(i) / plsize) * scan_period;
+      // Time based on horizontal index only (row-major: i = row * width + col)
+      // All points in the same column (horizontal angle) have the same timestamp
+      int h_idx = (width > 1) ? (i % width) : i;
+      ap.curvature = (static_cast<double>(h_idx) / width) * scan_period;
 
       if(i % point_filter_num == 0)
         pl_full.push_back(ap);
+      else
+        filter_count++;
     }
 
-    static int log_count = 0;
-    if(log_count++ % 100 == 0)
-      RCLCPP_INFO(rclcpp::get_logger("voxelslam"), "Gazebo LiDAR: input=%d, output=%zu", plsize, pl_full.size());
+    if(pl_full.size() < 100) {
+      RCLCPP_WARN(rclcpp::get_logger("voxelslam"),
+        "[DEBUG] Gazebo LiDAR: LOW POINT COUNT! output=%zu may cause KDTree issues", pl_full.size());
+    }
   }
 
 };
