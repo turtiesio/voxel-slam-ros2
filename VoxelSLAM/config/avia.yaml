@@ -17,6 +17,7 @@
       extrinsic_rota: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
       # The session is saved in save_path + bagname
       is_save_map: 0
+      export_pcd_resolution: 0.1  # Voxel size for merged PCD export (0 = no downsampling)
 
     Odometry:
       cov_gyr: 0.1

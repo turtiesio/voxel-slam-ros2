@@ -1,5 +1,7 @@
 #include "voxelslam.hpp"
 #include <chrono>
+#include <pcl/filters/voxel_grid.h>
+#include <pcl/filters/approximate_voxel_grid.h>
 
 using namespace std;
 
@@ -111,22 +113,12 @@ public:
     pub_pl_func(pl, pub_relc);
   }
 
-  void pub_globalmap(vector<vector<Keyframe*>*> &relc_submaps, vector<int> &ids, rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr &pub)
+  void pub_globalmap(vector<vector<Keyframe*>*> &relc_submaps, vector<int> &ids, rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr &pub, double leaf_size = 2.0)
   {
-    pcl::PointCloud<pcl::PointXYZI> pl;
-    pub_pl_func(pl, pub);
+    pcl::PointCloud<pcl::PointXYZI>::Ptr pl(new pcl::PointCloud<pcl::PointXYZI>());
     pcl::PointXYZI pp;
 
-    uint interval_size = 5e6;
-    uint psize = 0;
-    for(int id: ids)
-    {
-      vector<Keyframe*> &smps = *(relc_submaps[id]);
-      for(int i=0; i<smps.size(); i++)
-        psize += smps[i]->plptr->size();
-    }
-    int jump = psize / (10 * interval_size) + 1;
-
+    // Collect all points
     for(int id: ids)
     {
       pp.intensity = id;
@@ -134,25 +126,31 @@ public:
       for(int i=0; i<smps.size(); i++)
       {
         IMUST xx = smps[i]->x0;
-        for(int j=0; j<smps[i]->plptr->size(); j+=jump)
-        // for(int j=0; j<smps[i]->plptr->size(); j+=1)
+        for(int j=0; j<smps[i]->plptr->size(); j++)
         {
           PointType &ap = smps[i]->plptr->points[j];
           Eigen::Vector3d vv(ap.x, ap.y, ap.z);
           vv = xx.R * vv + xx.p;
           pp.x = vv[0]; pp.y = vv[1]; pp.z = vv[2];
-          pl.push_back(pp);
-        }
-
-        if(pl.size() > interval_size)
-        {
-          pub_pl_func(pl, pub);
-          std::this_thread::sleep_for(std::chrono::milliseconds(50));
-          pl.clear();
+          pl->push_back(pp);
         }
       }
     }
-    pub_pl_func(pl, pub);
+
+    // Voxel downsample using ApproximateVoxelGrid (faster for large clouds)
+    if(leaf_size > 0 && pl->size() > 0)
+    {
+      pcl::PointCloud<pcl::PointXYZI>::Ptr filtered(new pcl::PointCloud<pcl::PointXYZI>());
+      pcl::ApproximateVoxelGrid<pcl::PointXYZI> avg;
+      avg.setInputCloud(pl);
+      avg.setLeafSize(leaf_size, leaf_size, leaf_size);
+      avg.filter(*filtered);
+      RCLCPP_INFO(rclcpp::get_logger("voxelslam"), "Global map: %zu -> %zu points (leaf=%.2f)", pl->size(), filtered->size(), leaf_size);
+      pl = filtered;
+    }
+
+    // Publish as single message (no chunking - already downsampled)
+    pub_pl_func(*pl, pub);
   }
 
 };
@@ -201,6 +199,61 @@ public:
     }
     posfile.close();
 
+  }
+
+  void save_merged_pcd(vector<ScanPose*> &poses, string &fname, string &savepath, double leaf_size)
+  {
+    if(poses.size() < 10)
+    {
+      RCLCPP_WARN(rclcpp::get_logger("voxelslam"), "Too few scans (%zu) to create merged PCD", poses.size());
+      return;
+    }
+
+    RCLCPP_INFO(rclcpp::get_logger("voxelslam"), "Creating merged PCD from %zu scans...", poses.size());
+
+    pcl::PointCloud<pcl::PointXYZI>::Ptr merged(new pcl::PointCloud<pcl::PointXYZI>());
+
+    for(size_t i = 0; i < poses.size(); i++)
+    {
+      string pcdname = savepath + fname + "/" + to_string(i) + ".pcd";
+      pcl::PointCloud<pcl::PointXYZI> scan;
+
+      if(pcl::io::loadPCDFile(pcdname, scan) == -1)
+      {
+        RCLCPP_WARN(rclcpp::get_logger("voxelslam"), "Failed to load %s, skipping", pcdname.c_str());
+        continue;
+      }
+
+      IMUST &xx = poses[i]->x;
+      for(auto &p : scan.points)
+      {
+        Eigen::Vector3d pt(p.x, p.y, p.z);
+        pt = xx.R * pt + xx.p;
+        p.x = pt[0]; p.y = pt[1]; p.z = pt[2];
+      }
+
+      *merged += scan;
+
+      if((i + 1) % 100 == 0)
+        RCLCPP_INFO(rclcpp::get_logger("voxelslam"), "Processed %zu/%zu scans", i + 1, poses.size());
+    }
+
+    RCLCPP_INFO(rclcpp::get_logger("voxelslam"), "Total points before downsampling: %zu", merged->size());
+
+    if(leaf_size > 0)
+    {
+      pcl::PointCloud<pcl::PointXYZI>::Ptr filtered(new pcl::PointCloud<pcl::PointXYZI>());
+      pcl::VoxelGrid<pcl::PointXYZI> vg;
+      vg.setInputCloud(merged);
+      vg.setLeafSize(leaf_size, leaf_size, leaf_size);
+      vg.filter(*filtered);
+      merged = filtered;
+      RCLCPP_INFO(rclcpp::get_logger("voxelslam"), "Total points after downsampling (leaf=%.2f): %zu", leaf_size, merged->size());
+    }
+
+    string outname = savepath + fname + "_merged.pcd";
+    pcl::io::savePCDFileBinary(outname, *merged);
+    RCLCPP_INFO(rclcpp::get_logger("voxelslam"), "Saved merged PCD: %s", outname.c_str());
   }
 
   // The loop clousure edges of multi sessions
@@ -295,7 +348,7 @@ public:
       vector<string> strs;
       while(getline(ss2, str, ':'))
         strs.push_back(str);
-      
+
       if(strs.size() != 2)
       {
         RCLCPP_ERROR(n->get_logger(), "Invalid previous_map format: '%s'. Expected 'name:threshold' (e.g., 'map1:0.45')", str.c_str());
@@ -306,6 +359,7 @@ public:
       {
         fnames.push_back(strs[0]);
         juds.push_back(stod(strs[1]));
+        RCLCPP_INFO(n->get_logger(), "Will load previous map: %s (threshold: %.2f)", strs[0].c_str(), stod(strs[1]));
       }
     }
 
@@ -331,7 +385,7 @@ public:
       multimap_keyframes.push_back(keyframes_tem);
       read_lidarstate(fname+"/alidarState.txt", *bl_tem);
 
-      cout << "Reading " << fname << ": " << bl_tem->size() << " scans." << "\n";
+      RCLCPP_INFO(n->get_logger(), "Reading %s: %zu scans", fname.c_str(), bl_tem->size());
       deque<pcl::PointCloud<pcl::PointXYZI>::Ptr> plbuf;
       deque<IMUST> xxbuf;
       pcl::PointCloud<PointType> pl_lc;
@@ -380,7 +434,7 @@ public:
         }
       }
       
-      cout << "Generating BTC descriptors..." << "\n";
+      RCLCPP_INFO(n->get_logger(), "Generating BTC descriptors...");
 
       int subsize = keyframes_tem->size();
       for(int i=0; i+acsize<subsize && rclcpp::ok(); i+=mgsize)
@@ -409,7 +463,7 @@ public:
       }
       std_manager->config_setting_.skip_near_num_ = -(std_manager->plane_cloud_vec_.size()+10);
 
-      cout << "Read " << fname << " done." << "\n\n";
+      RCLCPP_INFO(n->get_logger(), "Read %s done", fname.c_str());
     }
 
     vector<int> ids_all;
@@ -454,6 +508,7 @@ public:
     ResultOutput::instance().pub_globalmap(multimap_keyframes, ids_all, pub_pmap);
 
     RCLCPP_INFO(n->get_logger(), "All previous maps loaded successfully (%zu sessions)", fnames.size());
+    RCLCPP_INFO(n->get_logger(), "Previous map published to /map_pmap - check RViz for visualization");
   }
   
 };
@@ -767,6 +822,7 @@ public:
   vector<string> sessionNames;
   string bagname, savepath;
   int is_save_map;
+  double export_pcd_resolution;
 
   VOXEL_SLAM(rclcpp::Node::SharedPtr &n)
   {
@@ -787,6 +843,7 @@ public:
     n->declare_parameter<std::vector<double>>("General.extrinsic_tran", std::vector<double>{0.0, 0.0, 0.0});
     n->declare_parameter<std::vector<double>>("General.extrinsic_rota", std::vector<double>{1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0});
     n->declare_parameter<int>("General.is_save_map", 0);
+    n->declare_parameter<double>("General.export_pcd_resolution", 0.1);
 
     lid_topic = n->get_parameter("General.lid_topic").as_string();
     imu_topic = n->get_parameter("General.imu_topic").as_string();
@@ -798,6 +855,7 @@ public:
     vecT = n->get_parameter("General.extrinsic_tran").as_double_array();
     vecR = n->get_parameter("General.extrinsic_rota").as_double_array();
     is_save_map = n->get_parameter("General.is_save_map").as_int();
+    export_pcd_resolution = n->get_parameter("General.export_pcd_resolution").as_double();
 
     auto imu_qos = rclcpp::SensorDataQoS().keep_last(80000);
     auto pcl_qos = rclcpp::SensorDataQoS().keep_last(1000);
@@ -1606,6 +1664,7 @@ public:
       if (first_flag)
       {
         pcl::PointCloud<PointType> pl;
+        // Don't clear pub_pmap - it has the loaded previous map
         pub_pl_func(pl, pub_pmap);
         pub_pl_func(pl, pub_prev_path);
         first_flag = 0;
@@ -2286,7 +2345,10 @@ public:
     if(is_save_map)
     {
       for(int i=0; i<ids.size(); i++)
+      {
         FileReaderWriter::instance().save_pose(*(multimap_scanPoses[ids[i]]), sessionNames[ids[i]], "/alidarState.txt", savepath);
+        FileReaderWriter::instance().save_merged_pcd(*(multimap_scanPoses[ids[i]]), sessionNames[ids[i]], savepath, export_pcd_resolution);
+      }
 
       FileReaderWriter::instance().pgo_edges_io(lp_edges, sessionNames, 1, savepath, bagname);
     }
@@ -2692,7 +2754,12 @@ int main(int argc, char **argv)
 
   // Create publishers
   pub_cmap = g_node->create_publisher<sensor_msgs::msg::PointCloud2>("/map_cmap", 100);
-  pub_pmap = g_node->create_publisher<sensor_msgs::msg::PointCloud2>("/map_pmap", 100);
+
+  // Use transient_local for previous map so late subscribers (like RViz) can receive it
+  rclcpp::QoS pmap_qos(1);
+  pmap_qos.transient_local().reliable();
+  pub_pmap = g_node->create_publisher<sensor_msgs::msg::PointCloud2>("/map_pmap", pmap_qos);
+
   pub_scan = g_node->create_publisher<sensor_msgs::msg::PointCloud2>("/map_scan", 100);
   pub_init = g_node->create_publisher<sensor_msgs::msg::PointCloud2>("/map_init", 100);
   pub_test = g_node->create_publisher<sensor_msgs::msg::PointCloud2>("/map_test", 100);

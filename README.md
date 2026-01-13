@@ -12,6 +12,7 @@
 - Compatible with [livox_ros_driver2](https://github.com/Livox-SDK/livox_ros_driver2)
 - Improved logging: replaced `printf` with ROS2 logging (`RCLCPP_INFO/WARN/ERROR/FATAL`)
 - Removed silent exits: all failure cases now log detailed error messages before exiting
+- Added merged PCD export: automatically saves a single merged point cloud file on shutdown
 
 ---
 
@@ -177,7 +178,30 @@ ros2 bag play jungle_challenge --start-paused
 
 Other types of LiDAR will be released later.
 
-## 5. VoxelSLAMPointCloud2
+## 5. Merged PCD Export
+
+When `is_save_map: 1` is enabled, VoxelSLAM automatically exports a single merged point cloud file (`{bagname}_merged.pcd`) at shutdown. This file contains all scans transformed to the global frame.
+
+**Configuration:**
+
+```yaml
+General:
+  is_save_map: 1                    # Enable map saving
+  export_pcd_resolution: 0.1        # Voxel downsampling size (meters), 0 = no downsampling
+```
+
+**Output location:**
+
+```
+save_path/
+├── bagname/
+│   ├── 0.pcd, 1.pcd, ...          # Individual scans (local frame)
+│   └── alidarState.txt            # Pose trajectory
+├── bagname_merged.pcd              # Merged point cloud (global frame)
+└── edge.txt                        # Loop closure edges
+```
+
+## 6. VoxelSLAMPointCloud2
 
 **VoxelSLAMPointCloud2**: A customized plugin for RViz. It has the same usage to original "PointCloud2" in RViz, but it can **clear the point cloud map automatically** when receiving an empty point cloud, with any **Decay Time** of the plugin.
 
