@@ -2828,6 +2828,18 @@ int main(int argc, char **argv)
   tf_buffer = std::make_shared<tf2_ros::Buffer>(g_node->get_clock());
   tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
 
+  // Publish initial identity TF (map → odom) so Nav2 can start immediately
+  // This will be continuously updated by pub_odom_func once odometry starts
+  {
+    geometry_msgs::msg::TransformStamped tf_init;
+    tf_init.header.stamp = g_node->now();
+    tf_init.header.frame_id = "map";
+    tf_init.child_frame_id = "odom";
+    tf_init.transform.rotation.w = 1.0;
+    tf_broadcaster->sendTransform(tf_init);
+    RCLCPP_INFO(g_node->get_logger(), "Published initial map→odom identity transform");
+  }
+
   // Create publishers
   pub_cmap = g_node->create_publisher<sensor_msgs::msg::PointCloud2>("/map_cmap", 100);
 

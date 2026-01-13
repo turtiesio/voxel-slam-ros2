@@ -9,7 +9,7 @@
 typedef pcl::PointXYZINormal PointType;
 using namespace std;
 
-enum LID_TYPE{LIVOX, VELODYNE, OUSTER, HESAI, ROBOSENSE, TARTANAIR, GAZEBO};
+enum LID_TYPE{LIVOX, VELODYNE, OUSTER, HESAI, ROBOSENSE, TARTANAIR, GAZEBO, LIVOX_PC2};
 
 namespace velodyne_ros {
   struct EIGEN_ALIGN16 Point {
@@ -93,6 +93,27 @@ POINT_CLOUD_REGISTER_POINT_STRUCT(rslidar_ros::Point,
     (double, timestamp, timestamp)
 )
 
+// dw_livox_driver PointCloud2 format
+namespace livox_pc2_ros {
+  struct EIGEN_ALIGN16 Point {
+      PCL_ADD_POINT4D;
+      float intensity;
+      std::uint8_t tag;
+      std::uint8_t line;
+      double timestamp;  // Absolute time in nanoseconds
+      EIGEN_MAKE_ALIGNED_OPERATOR_NEW
+  };
+}
+POINT_CLOUD_REGISTER_POINT_STRUCT(livox_pc2_ros::Point,
+    (float, x, x)
+    (float, y, y)
+    (float, z, z)
+    (float, intensity, intensity)
+    (std::uint8_t, tag, tag)
+    (std::uint8_t, line, line)
+    (double, timestamp, timestamp)
+)
+
 inline double get_msg_stamp_sec(const builtin_interfaces::msg::Time &stamp)
 {
   return static_cast<double>(stamp.sec) + static_cast<double>(stamp.nanosec) * 1e-9;
@@ -140,9 +161,13 @@ public:
       gazebo_handler(msg, pl_full);
       break;
 
+    case LIVOX_PC2:
+      livox_pc2_handler(msg, pl_full);
+      break;
+
     default:
       RCLCPP_FATAL(rclcpp::get_logger("voxelslam"),
-                   "Unknown lidar_type: %d. Valid types: 0=LIVOX, 1=VELODYNE, 2=OUSTER, 3=HESAI, 4=ROBOSENSE, 5=TARTANAIR, 6=GAZEBO",
+                   "Unknown lidar_type: %d. Valid types: 0=LIVOX, 1=VELODYNE, 2=OUSTER, 3=HESAI, 4=ROBOSENSE, 5=TARTANAIR, 6=GAZEBO, 7=LIVOX_PC2",
                    lidar_type);
       exit(1);
     }
@@ -437,6 +462,45 @@ public:
     if(pl_full.size() < 100) {
       RCLCPP_WARN(rclcpp::get_logger("voxelslam"),
         "[DEBUG] Gazebo LiDAR: LOW POINT COUNT! output=%zu may cause KDTree issues", pl_full.size());
+    }
+  }
+
+  void livox_pc2_handler(const sensor_msgs::msg::PointCloud2::SharedPtr &msg, pcl::PointCloud<PointType> &pl_full)
+  {
+    // dw_livox_driver PointCloud2 format:
+    // x(f32) y(f32) z(f32) intensity(f32) tag(u8) line(u8) timestamp(f64)
+    // timestamp is absolute time in nanoseconds
+
+    pcl::PointCloud<livox_pc2_ros::Point> pl_orig;
+    pcl::fromROSMsg(*msg, pl_orig);
+
+    int plsize = pl_orig.size();
+    if(plsize == 0) return;
+    pl_full.reserve(plsize);
+
+    // Get first point timestamp as base for offset calculation
+    double base_time = pl_orig[0].timestamp;
+
+    for(int i=0; i<plsize; i++)
+    {
+      livox_pc2_ros::Point &iter = pl_orig[i];
+
+      PointType ap;
+      ap.x = iter.x;
+      ap.y = iter.y;
+      ap.z = iter.z;
+      ap.intensity = iter.intensity;
+
+      // Convert absolute timestamp (ns) to relative offset (seconds)
+      ap.curvature = (iter.timestamp - base_time) / 1e9;
+
+      if(i % point_filter_num == 0)
+      {
+        if(ap.x*ap.x + ap.y*ap.y + ap.z*ap.z > blind)
+        {
+          pl_full.push_back(ap);
+        }
+      }
     }
   }
 
