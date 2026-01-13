@@ -421,7 +421,7 @@ Visualization Manager:
       Length: 0.5
       Name: Axes
       Radius: 0.009999999776482582
-      Reference Frame: aft_mapped
+      Reference Frame: odom
       Show Trail: false
       Value: false
     - Class: rviz_default_plugins/MarkerArray
@@ -460,7 +460,7 @@ Visualization Manager:
   Enabled: true
   Global Options:
     Background Color: 0; 0; 0
-    Fixed Frame: camera_init
+    Fixed Frame: map
     Frame Rate: 30
   Name: root
   Tools:

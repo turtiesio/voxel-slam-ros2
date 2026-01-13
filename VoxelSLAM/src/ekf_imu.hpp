@@ -44,6 +44,9 @@ public:
   {
     init_flag = false;
     init_num = 0;
+    pcl_beg_time = 0.0;
+    pcl_end_time = 0.0;
+    last_pcl_end_time = 0.0;
     mean_acc.setZero(); mean_gyr.setZero();
     angvel_last.setZero(); acc_s_last.setZero();
   }

@@ -379,7 +379,7 @@ public:
   void gazebo_handler(const sensor_msgs::msg::PointCloud2::SharedPtr &msg, pcl::PointCloud<PointType> &pl_full)
   {
     // Gazebo GPU Lidar outputs PointXYZI without per-point timestamps
-    // Compute time based on angular position (clockwise rotation)
+    // For GPU LiDAR, all points are captured simultaneously, so use uniform time distribution
     pcl::PointCloud<pcl::PointXYZI> pl_orig;
     pcl::fromROSMsg(*msg, pl_orig);
 
@@ -387,52 +387,37 @@ public:
     if(plsize == 0) return;
     pl_full.reserve(plsize);
 
-    // Compute time from angular position (like velodyne fallback)
-    bool first_point = true;
-    double yaw_first = 0;
-    double yaw_last = 0;
-    double yaw_bias = 0;
-    int cool = 0;
+    // GPU LiDAR captures all points at once - distribute time uniformly across scan
+    // Assume 10Hz scan rate = 0.1s per scan
+    const double scan_period = 0.1;
 
     for(int i=0; i<plsize; i++)
     {
-      cool--;
       pcl::PointXYZI &iter = pl_orig[i];
+
+      // Skip NaN/Inf points
+      if(!std::isfinite(iter.x) || !std::isfinite(iter.y) || !std::isfinite(iter.z))
+        continue;
+
       PointType ap;
       ap.x = iter.x; ap.y = iter.y; ap.z = iter.z;
       ap.intensity = iter.intensity;
+      ap.normal_x = 0; ap.normal_y = 0; ap.normal_z = 0;
 
-      if(fabs(ap.x) < 0.01 && fabs(ap.y) < 0.01)
-        continue;
-
-      double yaw_angle = atan2(ap.y, ap.x) * 57.2957 - yaw_bias;
-      if(first_point)
-      {
-        yaw_first = yaw_angle;
-        yaw_last  = yaw_angle;
-        first_point = false;
-      }
-
+      // Skip points too close to origin
       if(ap.x*ap.x + ap.y*ap.y + ap.z*ap.z < blind)
         continue;
 
-      if(yaw_angle - yaw_last > 180 && cool <= 0)
-      {
-        yaw_bias += 360; yaw_angle -= 360; cool = 1000;
-      }
+      // Uniform time distribution based on point index
+      ap.curvature = (static_cast<double>(i) / plsize) * scan_period;
 
-      if(fabs(yaw_angle - yaw_last) > 180)
-      {
-        yaw_angle += 360;
-      }
-
-      ap.curvature = (yaw_first - yaw_angle) / omega_l;
-      yaw_last = yaw_angle;
-
-      if(ap.curvature >= 0 && ap.curvature < 0.1)
-        if(i % point_filter_num == 0)
-          pl_full.push_back(ap);
+      if(i % point_filter_num == 0)
+        pl_full.push_back(ap);
     }
+
+    static int log_count = 0;
+    if(log_count++ % 100 == 0)
+      RCLCPP_INFO(rclcpp::get_logger("voxelslam"), "Gazebo LiDAR: input=%d, output=%zu", plsize, pl_full.size());
   }
 
 };

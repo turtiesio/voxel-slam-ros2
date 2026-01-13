@@ -47,7 +47,7 @@ void pub_pl_func(T &pl, rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::Shared
   pl.height = 1; pl.width = pl.size();
   sensor_msgs::msg::PointCloud2 output;
   pcl::toROSMsg(pl, output);
-  output.header.frame_id = "camera_init";
+  output.header.frame_id = "map";
   output.header.stamp = g_node->now();
   pub->publish(output);
 }
@@ -87,6 +87,16 @@ void pcl_handler(T &msg)
 {
   pcl::PointCloud<PointType>::Ptr pl_ptr(new pcl::PointCloud<PointType>());
   double t0 = feat.process(msg, *pl_ptr);
+
+  // Reject stale pointcloud data (timestamp significantly behind current IMU time)
+  // This prevents crashes when old buffered data has outdated timestamps
+  if(imu_last_time > 0 && t0 < imu_last_time - 1.0)
+  {
+    RCLCPP_WARN_THROTTLE(g_node->get_logger(), *g_node->get_clock(), 1000,
+                         "Rejecting stale pointcloud (pcl_time=%.3f, imu_time=%.3f, diff=%.3f)",
+                         t0, imu_last_time, imu_last_time - t0);
+    return;
+  }
 
   if(pl_ptr->empty())
   {
@@ -136,6 +146,18 @@ bool sync_packages(pcl::PointCloud<PointType>::Ptr &pl_ptr, deque<sensor_msgs::m
     mBuf.unlock();
 
     p_imu.pcl_end_time = p_imu.pcl_beg_time + pl_ptr->back().curvature;
+
+    // Skip stale data that would cause timestamp regression
+    // This can happen if old data was buffered before processing started
+    if(p_imu.last_pcl_end_time > 0 && p_imu.last_pcl_end_time - p_imu.pcl_beg_time > 0.01)
+    {
+      RCLCPP_WARN(g_node->get_logger(),
+                  "Skipping stale buffered data (pcl_beg=%.3f, last_pcl_end=%.3f, diff=%.3f)",
+                  p_imu.pcl_beg_time, p_imu.last_pcl_end_time,
+                  p_imu.last_pcl_end_time - p_imu.pcl_beg_time);
+      pl_ready = false;
+      return false;
+    }
 
     if(point_notime)
     {

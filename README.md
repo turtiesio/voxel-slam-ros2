@@ -200,15 +200,15 @@ The Gazebo handler computes per-point timestamps from angular position since Gaz
 
 ### 4.6 Supported LiDAR Types
 
-| Type | Value | Description |
-|------|-------|-------------|
-| LIVOX | 0 | Livox LiDARs (CustomMsg) |
-| VELODYNE | 1 | Velodyne LiDARs |
-| OUSTER | 2 | Ouster LiDARs |
-| HESAI | 3 | Hesai LiDARs (XT32, etc.) |
-| ROBOSENSE | 4 | RoboSense LiDARs |
-| TARTANAIR | 5 | TartanAir dataset (XYZ only) |
-| GAZEBO | 6 | Gazebo GPU LiDAR simulation |
+| Type      | Value | Description                  |
+| --------- | ----- | ---------------------------- |
+| LIVOX     | 0     | Livox LiDARs (CustomMsg)     |
+| VELODYNE  | 1     | Velodyne LiDARs              |
+| OUSTER    | 2     | Ouster LiDARs                |
+| HESAI     | 3     | Hesai LiDARs (XT32, etc.)    |
+| ROBOSENSE | 4     | RoboSense LiDARs             |
+| TARTANAIR | 5     | TartanAir dataset (XYZ only) |
+| GAZEBO    | 6     | Gazebo GPU LiDAR simulation  |
 
 ### 4.7 Others
 
@@ -241,30 +241,31 @@ save_path/
 
 VoxelSLAM publishes TF transforms compatible with Nav2 navigation stack.
 
-### Published Transforms
+### Published Transform
 
-| Parent | Child | Description |
-|--------|-------|-------------|
-| `map` | `odom` | Relocalization correction (updated on cross-session loop closure) |
-| `camera_init` | `aft_mapped` | Current pose in local frame (backward compatibility) |
+| Parent | Child  | Description                                                       |
+| ------ | ------ | ----------------------------------------------------------------- |
+| `map`  | `odom` | Relocalization correction (updated on cross-session loop closure) |
 
-### TF Tree Structure (Nav2 Compatible)
+### TF Tree Structure (Nav2 Standard)
 
 ```
 map
  └── odom                    ← Published by VoxelSLAM (relocalization)
-      └── base_link          ← Published by external odometry (wheel/IMU)
+      └── base_footprint     ← Published by EKF (wheel+IMU odometry)
 ```
 
 ### Behavior
 
 - **Before relocalization**: `map → odom` is identity transform
 - **After relocalization**: When a cross-session loop closure is detected, VoxelSLAM computes and publishes the `map → odom` correction transform
-- **External odometry**: VoxelSLAM does NOT publish `odom → base_link`. This should be provided by wheel encoders, IMU, or other odometry sources.
+- **External odometry**: VoxelSLAM does NOT publish `odom → base_footprint`. This should be provided by EKF fusing wheel encoders and IMU.
 
 ### Integration with Nav2
 
-For Nav2 integration, ensure your robot publishes `odom → base_link` from wheel/IMU odometry. VoxelSLAM will provide the `map → odom` transform when it localizes against a previously built map.
+For Nav2 integration:
+1. EKF (robot_localization) publishes `odom → base_footprint` from wheel/IMU fusion
+2. VoxelSLAM publishes `map → odom` for relocalization correction
 
 ## 7. VoxelSLAMPointCloud2
 

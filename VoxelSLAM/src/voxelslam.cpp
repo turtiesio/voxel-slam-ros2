@@ -2,12 +2,16 @@
 #include <chrono>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/approximate_voxel_grid.h>
+#include <tf2_ros/buffer.h>
+#include <tf2_ros/transform_listener.h>
 
 using namespace std;
 
 // Global node pointer definition
 rclcpp::Node::SharedPtr g_node = nullptr;
 std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster = nullptr;
+std::shared_ptr<tf2_ros::Buffer> tf_buffer = nullptr;
+std::shared_ptr<tf2_ros::TransformListener> tf_listener = nullptr;
 
 class ResultOutput
 {
@@ -24,11 +28,45 @@ public:
 
   void pub_odom_func(IMUST &xc)
   {
-    Eigen::Quaterniond q_pose(xc.R);
-    Eigen::Vector3d t_pose = xc.p;
     auto now = g_node->now();
 
-    // 1. Publish map → odom (relocalization correction)
+    // VoxelSLAM pose: map → base_footprint
+    Eigen::Quaterniond q_map_base(xc.R);
+    Eigen::Vector3d t_map_base = xc.p;
+
+    // Lookup EKF pose: odom → base_footprint
+    try {
+      auto tf_odom_base = tf_buffer->lookupTransform("odom", "base_footprint", tf2::TimePointZero);
+
+      // Extract odom → base transform
+      Eigen::Quaterniond q_odom_base(
+        tf_odom_base.transform.rotation.w,
+        tf_odom_base.transform.rotation.x,
+        tf_odom_base.transform.rotation.y,
+        tf_odom_base.transform.rotation.z);
+      Eigen::Vector3d t_odom_base(
+        tf_odom_base.transform.translation.x,
+        tf_odom_base.transform.translation.y,
+        tf_odom_base.transform.translation.z);
+
+      // Compute map → odom = (map → base) * (odom → base)^(-1)
+      // T_map_odom = T_map_base * T_base_odom
+      Eigen::Quaterniond q_base_odom = q_odom_base.inverse();
+      Eigen::Vector3d t_base_odom = -(q_base_odom * t_odom_base);
+
+      q_map_odom = q_map_base * q_base_odom;
+      t_map_odom = q_map_base * t_base_odom + t_map_base;
+
+    } catch (tf2::TransformException &ex) {
+      // If EKF TF not available yet, use identity (first few frames)
+      static bool warned = false;
+      if (!warned) {
+        RCLCPP_WARN(g_node->get_logger(), "Waiting for EKF TF (odom→base_footprint): %s", ex.what());
+        warned = true;
+      }
+    }
+
+    // Publish map → odom
     geometry_msgs::msg::TransformStamped tf_map_odom;
     tf_map_odom.header.stamp = now;
     tf_map_odom.header.frame_id = "map";
@@ -41,21 +79,7 @@ public:
     tf_map_odom.transform.rotation.y = q_map_odom.y();
     tf_map_odom.transform.rotation.z = q_map_odom.z();
 
-    // 2. Publish camera_init → aft_mapped (backward compatibility)
-    geometry_msgs::msg::TransformStamped tf_legacy;
-    tf_legacy.header.stamp = now;
-    tf_legacy.header.frame_id = "camera_init";
-    tf_legacy.child_frame_id = "aft_mapped";
-    tf_legacy.transform.translation.x = t_pose.x();
-    tf_legacy.transform.translation.y = t_pose.y();
-    tf_legacy.transform.translation.z = t_pose.z();
-    tf_legacy.transform.rotation.w = q_pose.w();
-    tf_legacy.transform.rotation.x = q_pose.x();
-    tf_legacy.transform.rotation.y = q_pose.y();
-    tf_legacy.transform.rotation.z = q_pose.z();
-
-    // odom → base_link is NOT published (external wheel/IMU handles it)
-    tf_broadcaster->sendTransform({tf_map_odom, tf_legacy});
+    tf_broadcaster->sendTransform(tf_map_odom);
   }
 
   void set_map_odom_transform(const Eigen::Matrix3d &R, const Eigen::Vector3d &t)
@@ -885,8 +909,8 @@ public:
     is_save_map = n->get_parameter("General.is_save_map").as_int();
     export_pcd_resolution = n->get_parameter("General.export_pcd_resolution").as_double();
 
-    auto imu_qos = rclcpp::SensorDataQoS().keep_last(80000);
-    auto pcl_qos = rclcpp::SensorDataQoS().keep_last(1000);
+    auto imu_qos = rclcpp::SensorDataQoS().keep_last(2000);   // ~5s at 400Hz
+    auto pcl_qos = rclcpp::SensorDataQoS().keep_last(20);     // ~2s at 10Hz
 
     sub_imu = n->create_subscription<sensor_msgs::msg::Imu>(
         imu_topic, imu_qos, imu_handler);
@@ -2793,10 +2817,16 @@ public:
 int main(int argc, char **argv)
 {
   rclcpp::init(argc, argv);
-  g_node = std::make_shared<rclcpp::Node>("voxel_slam");
 
-  // Initialize TF broadcaster
+  // allow_undeclared_parameters for launch overrides (use_sim_time is auto-declared by ROS2)
+  rclcpp::NodeOptions options;
+  options.allow_undeclared_parameters(true);
+  g_node = std::make_shared<rclcpp::Node>("voxel_slam", options);
+
+  // Initialize TF broadcaster and listener
   tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(g_node);
+  tf_buffer = std::make_shared<tf2_ros::Buffer>(g_node->get_clock());
+  tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
 
   // Create publishers
   pub_cmap = g_node->create_publisher<sensor_msgs::msg::PointCloud2>("/map_cmap", 100);
