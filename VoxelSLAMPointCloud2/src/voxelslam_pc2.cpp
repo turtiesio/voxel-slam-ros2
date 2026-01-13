@@ -30,48 +30,61 @@
 #include <OgreSceneNode.h>
 #include <OgreSceneManager.h>
 
-#include <ros/time.h>
-
-#include <rviz/default_plugin/point_cloud_common.h>
-#include <rviz/default_plugin/point_cloud_transformers.h>
-#include <rviz/display_context.h>
-#include <rviz/frame_manager.h>
-#include <rviz/ogre_helpers/point_cloud.h>
-#include <rviz/properties/int_property.h>
-#include <rviz/validate_floats.h>
+#include <rviz_common/display_context.hpp>
+#include <rviz_common/frame_manager_iface.hpp>
+#include <rviz_common/properties/int_property.hpp>
+#include <rviz_common/validate_floats.hpp>
+#include <rviz_default_plugins/displays/pointcloud/point_cloud_common.hpp>
 
 #include "voxelslam_pc2.hpp"
 
 namespace voxelslam_pointcloud2
 {
-PointCloud2Display::PointCloud2Display() : point_cloud_common_(new rviz::PointCloudCommon(this))
+
+PointCloud2Display::PointCloud2Display()
+  : point_cloud_common_(std::make_unique<rviz_default_plugins::PointCloudCommon>(this))
 {
 }
 
 PointCloud2Display::~PointCloud2Display()
 {
-  PointCloud2Display::unsubscribe();
-  delete point_cloud_common_;
 }
 
 void PointCloud2Display::onInitialize()
 {
-  // Use the threaded queue for processing of incoming messages
-  update_nh_.setCallbackQueue(context_->getThreadedQueue());
-
   MFDClass::onInitialize();
   point_cloud_common_->initialize(context_, scene_node_);
 }
 
-void PointCloud2Display::processMessage(const sensor_msgs::PointCloud2ConstPtr& cloud)
+namespace
+{
+int32_t findChannelIndex(
+  const sensor_msgs::msg::PointCloud2::ConstSharedPtr & cloud,
+  const std::string & channel)
+{
+  for (size_t i = 0; i < cloud->fields.size(); ++i) {
+    if (cloud->fields[i].name == channel) {
+      return static_cast<int32_t>(i);
+    }
+  }
+  return -1;
+}
+
+bool validateFloats(float val)
+{
+  return std::isfinite(val);
+}
+}
+
+void PointCloud2Display::processMessage(sensor_msgs::msg::PointCloud2::ConstSharedPtr cloud)
 {
   // Filter any nan values out of the cloud.  Any nan values that make it through to PointCloudBase
   // will get their points put off in lala land, but it means they still do get processed/rendered
   // which can be a big performance hit
-  sensor_msgs::PointCloud2Ptr filtered(new sensor_msgs::PointCloud2);
-  int32_t xi = rviz::findChannelIndex(cloud, "x");
-  int32_t yi = rviz::findChannelIndex(cloud, "y");
-  int32_t zi = rviz::findChannelIndex(cloud, "z");
+  auto filtered = std::make_shared<sensor_msgs::msg::PointCloud2>();
+  int32_t xi = findChannelIndex(cloud, "x");
+  int32_t yi = findChannelIndex(cloud, "y");
+  int32_t zi = findChannelIndex(cloud, "z");
 
   if (xi == -1 || yi == -1 || zi == -1)
   {
@@ -90,7 +103,7 @@ void PointCloud2Display::processMessage(const sensor_msgs::PointCloud2ConstPtr& 
     ss << "Data size (" << cloud->data.size() << " bytes) does not match width (" << cloud->width
        << ") times height (" << cloud->height << ") times point_step (" << point_step
        << ").  Dropping message.";
-    setStatusStd(rviz::StatusProperty::Error, "Message", ss.str());
+    setStatus(rviz_common::properties::StatusProperty::Error, "Message", QString::fromStdString(ss.str()));
     return;
   }
 
@@ -110,7 +123,7 @@ void PointCloud2Display::processMessage(const sensor_msgs::PointCloud2ConstPtr& 
       float x = *reinterpret_cast<const float*>(ptr + xoff);
       float y = *reinterpret_cast<const float*>(ptr + yoff);
       float z = *reinterpret_cast<const float*>(ptr + zoff);
-      if (rviz::validateFloats(x) && rviz::validateFloats(y) && rviz::validateFloats(z))
+      if (validateFloats(x) && validateFloats(y) && validateFloats(z))
       {
         if (points_to_copy == 0)
         {
@@ -174,4 +187,4 @@ void PointCloud2Display::reset()
 }
 
 #include <pluginlib/class_list_macros.hpp>
-PLUGINLIB_EXPORT_CLASS(voxelslam_pointcloud2::PointCloud2Display, rviz::Display)
+PLUGINLIB_EXPORT_CLASS(voxelslam_pointcloud2::PointCloud2Display, rviz_common::Display)

@@ -1,25 +1,34 @@
-<package>
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
   <name>voxelslam_pointcloud2</name>
   <version>0.11.0</version>
   <description>
-     Tutorials showing how to write plugins for RViz.
+     VoxelSLAM PointCloud2 display plugin for RViz2.
+     This package is optional and will be skipped if RViz2 is not installed.
   </description>
   <maintainer email="zhengliu1323@hotmail.com">Zheng Liu</maintainer>
   <license>BSD</license>
 
   <author>Zheng Liu</author>
 
-  <buildtool_depend>catkin</buildtool_depend>
+  <buildtool_depend>ament_cmake</buildtool_depend>
 
+  <!-- Optional RViz2 dependencies - build will skip if not found -->
+  <build_depend>rviz_common</build_depend>
+  <build_depend>rviz_default_plugins</build_depend>
+  <build_depend>rviz_rendering</build_depend>
+  <build_depend>rviz_ogre_vendor</build_depend>
+  <build_depend>pluginlib</build_depend>
+  <build_depend>sensor_msgs</build_depend>
+  <build_depend>rclcpp</build_depend>
   <build_depend>qtbase5-dev</build_depend>
-  <build_depend>rviz</build_depend>
 
-  <run_depend>libqt5-core</run_depend>
-  <run_depend>libqt5-gui</run_depend>
-  <run_depend>libqt5-widgets</run_depend>
-  <run_depend>rviz</run_depend>
+  <exec_depend>rviz_common</exec_depend>
+  <exec_depend>rviz_default_plugins</exec_depend>
+  <exec_depend>rviz_rendering</exec_depend>
 
   <export>
-      <rviz plugin="${prefix}/plugin_description.xml"/>
+    <build_type>ament_cmake</build_type>
   </export>
 </package>

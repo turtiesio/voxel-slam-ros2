@@ -1,5 +1,5 @@
 Panels:
-  - Class: rviz/Displays
+  - Class: rviz_common/Displays
     Help Height: 0
     Name: Displays
     Property Tree Widget:
@@ -16,34 +16,31 @@ Panels:
         - /MarkerArray1
       Splitter Ratio: 0.5014244914054871
     Tree Height: 865
-  - Class: rviz/Selection
+  - Class: rviz_common/Selection
     Name: Selection
-  - Class: rviz/Tool Properties
+  - Class: rviz_common/Tool Properties
     Expanded:
       - /2D Pose Estimate1
       - /2D Nav Goal1
       - /Publish Point1
     Name: Tool Properties
     Splitter Ratio: 0.5886790156364441
-  - Class: rviz/Views
+  - Class: rviz_common/Views
     Expanded:
       - /Current View1
     Name: Views
     Splitter Ratio: 0.5
-  - Class: rviz/Time
+  - Class: rviz_common/Time
+    Experimental: false
     Name: Time
     SyncMode: 0
     SyncSource: targ
-Preferences:
-  PromptSaveOnExit: true
-Toolbars:
-  toolButtonStyle: 2
 Visualization Manager:
   Class: ""
   Displays:
     - Alpha: 0.5
       Cell Size: 1
-      Class: rviz/Grid
+      Class: rviz_default_plugins/Grid
       Color: 160; 160; 164
       Enabled: false
       Line Style:
@@ -59,7 +56,7 @@ Visualization Manager:
       Plane Cell Count: 45
       Reference Frame: <Fixed Frame>
       Value: false
-    - Class: rviz/Group
+    - Class: rviz_common/Group
       Displays:
         - Alpha: 1
           Autocompute Intensity Bounds: true
@@ -69,7 +66,7 @@ Visualization Manager:
             Value: false
           Axis: Z
           Channel Name: intensity
-          Class: rviz/PointCloud2
+          Class: rviz_default_plugins/PointCloud2
           Color: 238; 29; 0
           Color Transformer: FlatColor
           Decay Time: 100000
@@ -79,13 +76,16 @@ Visualization Manager:
           Min Color: 0; 0; 0
           Name: full
           Position Transformer: XYZ
-          Queue Size: 100000
           Selectable: false
           Size (Pixels): 1
           Size (m): 0.009999999776482582
           Style: Points
-          Topic: /map_full
-          Unreliable: false
+          Topic:
+            Depth: 100000
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+            Value: /map_full
           Use Fixed Frame: true
           Use rainbow: true
           Value: false
@@ -97,7 +97,7 @@ Visualization Manager:
             Value: false
           Axis: Z
           Channel Name: intensity
-          Class: rviz/PointCloud2
+          Class: rviz_default_plugins/PointCloud2
           Color: 255; 255; 255
           Color Transformer: FlatColor
           Decay Time: 0
@@ -107,13 +107,16 @@ Visualization Manager:
           Min Color: 0; 0; 0
           Name: full__curr
           Position Transformer: XYZ
-          Queue Size: 10
           Selectable: false
           Size (Pixels): 2
           Size (m): 1
           Style: Points
-          Topic: /map_curr
-          Unreliable: false
+          Topic:
+            Depth: 10
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+            Value: /map_curr
           Use Fixed Frame: true
           Use rainbow: true
           Value: true
@@ -125,7 +128,7 @@ Visualization Manager:
             Value: true
           Axis: Z
           Channel Name: intensity
-          Class: rviz/PointCloud2
+          Class: rviz_default_plugins/PointCloud2
           Color: 0; 130; 255
           Color Transformer: FlatColor
           Decay Time: 0
@@ -137,13 +140,16 @@ Visualization Manager:
           Min Intensity: -100
           Name: path
           Position Transformer: XYZ
-          Queue Size: 7
           Selectable: true
           Size (Pixels): 7
           Size (m): 0.009999999776482582
           Style: Points
-          Topic: /map_path
-          Unreliable: false
+          Topic:
+            Depth: 7
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+            Value: /map_path
           Use Fixed Frame: true
           Use rainbow: true
           Value: false
@@ -167,13 +173,16 @@ Visualization Manager:
           Min Intensity: 0
           Name: VoxelSLAMPointCloud2
           Position Transformer: XYZ
-          Queue Size: 10
           Selectable: true
           Size (Pixels): 1
           Size (m): 0.009999999776482582
           Style: Points
-          Topic: /map_full
-          Unreliable: false
+          Topic:
+            Depth: 10
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+            Value: /map_full
           Use Fixed Frame: true
           Use rainbow: true
           Value: true
@@ -187,7 +196,7 @@ Visualization Manager:
         Value: true
       Axis: Z
       Channel Name: intensity
-      Class: rviz/PointCloud2
+      Class: rviz_default_plugins/PointCloud2
       Color: 252; 233; 79
       Color Transformer: FlatColor
       Decay Time: 0
@@ -199,13 +208,16 @@ Visualization Manager:
       Min Intensity: 0
       Name: true_path
       Position Transformer: XYZ
-      Queue Size: 10
       Selectable: true
       Size (Pixels): 7
       Size (m): 0.10000000149011612
       Style: Points
-      Topic: /map_true
-      Unreliable: false
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /map_true
       Use Fixed Frame: true
       Use rainbow: true
       Value: false
@@ -217,7 +229,7 @@ Visualization Manager:
         Value: true
       Axis: Z
       Channel Name: intensity
-      Class: rviz/PointCloud2
+      Class: rviz_default_plugins/PointCloud2
       Color: 238; 29; 0
       Color Transformer: FlatColor
       Decay Time: 0
@@ -227,13 +239,16 @@ Visualization Manager:
       Min Color: 239; 41; 41
       Name: test
       Position Transformer: XYZ
-      Queue Size: 10
       Selectable: false
       Size (Pixels): 10
       Size (m): 0.009999999776482582
       Style: Points
-      Topic: /map_test
-      Unreliable: false
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /map_test
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
@@ -257,13 +272,16 @@ Visualization Manager:
       Min Intensity: 4.156645774841309
       Name: targ
       Position Transformer: XYZ
-      Queue Size: 10
       Selectable: false
       Size (Pixels): 1
       Size (m): 0.009999999776482582
       Style: Points
-      Topic: /map_targ
-      Unreliable: false
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /map_targ
       Use Fixed Frame: false
       Use rainbow: true
       Value: true
@@ -275,7 +293,7 @@ Visualization Manager:
         Value: true
       Axis: Z
       Channel Name: intensity
-      Class: rviz/PointCloud2
+      Class: rviz_default_plugins/PointCloud2
       Color: 0; 255; 0
       Color Transformer: FlatColor
       Decay Time: 0
@@ -285,17 +303,20 @@ Visualization Manager:
       Min Color: 0; 0; 0
       Name: cute
       Position Transformer: XYZ
-      Queue Size: 10
       Selectable: true
       Size (Pixels): 1
       Size (m): 1
       Style: Points
-      Topic: /map_cute
-      Unreliable: false
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /map_cute
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
-    - Class: rviz/Group
+    - Class: rviz_common/Group
       Displays:
         - Alpha: 1
           Autocompute Intensity Bounds: true
@@ -305,7 +326,7 @@ Visualization Manager:
             Value: true
           Axis: Z
           Channel Name: intensity
-          Class: rviz/PointCloud2
+          Class: rviz_default_plugins/PointCloud2
           Color: 238; 29; 0
           Color Transformer: FlatColor
           Decay Time: 0
@@ -315,13 +336,16 @@ Visualization Manager:
           Min Color: 0; 0; 0
           Name: map_fixd
           Position Transformer: XYZ
-          Queue Size: 10
           Selectable: true
           Size (Pixels): 3
           Size (m): 0.10000000149011612
           Style: Points
-          Topic: /map_fixd
-          Unreliable: false
+          Topic:
+            Depth: 10
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+            Value: /map_fixd
           Use Fixed Frame: true
           Use rainbow: true
           Value: true
@@ -345,13 +369,16 @@ Visualization Manager:
           Min Intensity: 0
           Name: map_wind
           Position Transformer: XYZ
-          Queue Size: 10
           Selectable: true
           Size (Pixels): 1
           Size (m): 0.009999999776482582
           Style: Points
-          Topic: /map_wind
-          Unreliable: false
+          Topic:
+            Depth: 10
+            Durability Policy: Volatile
+            History Policy: Keep Last
+            Reliability Policy: Best Effort
+            Value: /map_wind
           Use Fixed Frame: true
           Use rainbow: true
           Value: true
@@ -365,7 +392,7 @@ Visualization Manager:
         Value: true
       Axis: Z
       Channel Name: intensity
-      Class: rviz/PointCloud2
+      Class: rviz_default_plugins/PointCloud2
       Color: 0; 130; 255
       Color Transformer: FlatColor
       Decay Time: 0
@@ -375,18 +402,21 @@ Visualization Manager:
       Min Color: 0; 0; 0
       Name: Cnct
       Position Transformer: XYZ
-      Queue Size: 10
       Selectable: true
       Size (Pixels): 3
       Size (m): 0.009999999776482582
       Style: Points
-      Topic: /map_cnct
-      Unreliable: false
+      Topic:
+        Depth: 10
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /map_cnct
       Use Fixed Frame: true
       Use rainbow: true
       Value: true
     - Alpha: 1
-      Class: rviz/Axes
+      Class: rviz_default_plugins/Axes
       Enabled: false
       Length: 0.5
       Name: Axes
@@ -394,16 +424,20 @@ Visualization Manager:
       Reference Frame: aft_mapped
       Show Trail: false
       Value: false
-    - Class: rviz/MarkerArray
+    - Class: rviz_default_plugins/MarkerArray
       Enabled: true
-      Marker Topic: /arrows
       Name: MarkerArray
       Namespaces:
         {}
-      Queue Size: 100
+      Topic:
+        Depth: 100
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /arrows
       Value: true
     - Alpha: 1
-      Class: rviz/Axes
+      Class: rviz_default_plugins/Axes
       Enabled: false
       Length: 2
       Name: Axes
@@ -411,61 +445,70 @@ Visualization Manager:
       Reference Frame: <Fixed Frame>
       Show Trail: false
       Value: false
-    - Class: rviz/Image
-      Enabled: false
-      Image Topic: /left_camera/image
-      Max Value: 1
-      Median window: 5
-      Min Value: 0
-      Name: Image
-      Normalize Range: true
-      Queue Size: 2
-      Transport Hint: compressed
-      Unreliable: false
-      Value: false
-    - Class: rviz/Marker
+    - Class: rviz_default_plugins/Marker
       Enabled: true
-      Marker Topic: /avoxel
       Name: Marker
       Namespaces:
         {}
-      Queue Size: 100
+      Topic:
+        Depth: 100
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /avoxel
       Value: true
   Enabled: true
   Global Options:
     Background Color: 0; 0; 0
-    Default Light: true
     Fixed Frame: camera_init
     Frame Rate: 30
   Name: root
   Tools:
-    - Class: rviz/Interact
+    - Class: rviz_default_plugins/Interact
       Hide Inactive Objects: true
-    - Class: rviz/MoveCamera
-    - Class: rviz/Select
-    - Class: rviz/FocusCamera
-    - Class: rviz/Measure
-    - Class: rviz/SetInitialPose
+    - Class: rviz_default_plugins/MoveCamera
+    - Class: rviz_default_plugins/Select
+    - Class: rviz_default_plugins/FocusCamera
+    - Class: rviz_default_plugins/Measure
+      Line color: 128; 128; 0
+    - Class: rviz_default_plugins/SetInitialPose
       Theta std deviation: 0.2617993950843811
-      Topic: /initialpose
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /initialpose
       X std deviation: 0.5
       Y std deviation: 0.5
-    - Class: rviz/SetGoal
-      Topic: /move_base_simple/goal
-    - Class: rviz/PublishPoint
+    - Class: rviz_default_plugins/SetGoal
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /goal_pose
+    - Class: rviz_default_plugins/PublishPoint
       Single click: true
-      Topic: /clicked_point
+      Topic:
+        Depth: 5
+        Durability Policy: Volatile
+        History Policy: Keep Last
+        Reliability Policy: Best Effort
+        Value: /clicked_point
+  Transformation:
+    Current:
+      Class: rviz_default_plugins/TF
   Value: true
   Views:
     Current:
-      Class: rviz/Orbit
+      Class: rviz_default_plugins/Orbit
       Distance: 27.784698486328125
       Enable Stereo Rendering:
         Stereo Eye Separation: 0.05999999865889549
         Stereo Focal Distance: 1
         Swap Stereo Eyes: false
         Value: false
-      Field of View: 0.7853981852531433
       Focal Point:
         X: -4.918152332305908
         Y: 8.114713668823242
@@ -477,6 +520,7 @@ Visualization Manager:
       Near Clip Distance: 0.009999999776482582
       Pitch: 0.07479722052812576
       Target Frame: <Fixed Frame>
+      Value: Orbit (rviz_default_plugins)
       Yaw: 5.958580017089844
     Saved: ~
 Window Geometry:
@@ -485,17 +529,15 @@ Window Geometry:
   Height: 1016
   Hide Left Dock: false
   Hide Right Dock: true
-  Image:
-    collapsed: false
-  QMainWindow State: 000000ff00000000fd0000000400000000000001610000039efc020000001ffb0000001e0054006f006f006c002000500072006f007000650072007400690065007302000001ed000001df00000185000000a3fb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c00000261fb000000100044006900730070006c006100790073010000003d0000039e000000c900fffffffb0000000a0049006d00610067006500000002800000015b0000001600fffffffb0000000a0049006d00610067006500000002cf0000010c0000000000000000fb0000000a0049006d00610067006501000002bf0000011c0000000000000000fb0000000a0049006d0061006700650100000310000000cb0000000000000000fb0000000a0049006d0061006700650100000310000000cb0000000000000000fb0000000a0049006d0061006700650100000310000000cb0000000000000000fb0000000a0049006d0061006700650100000253000001880000000000000000fb0000000a0049006d0061006700650100000238000001a30000000000000000fb0000000a0049006d0061006700650100000310000000cb0000000000000000fb0000000a0049006d0061006700650100000310000000cb0000000000000000fb0000000a0049006d0061006700650100000310000000cb0000000000000000fb0000000a0049006d0061006700650100000310000000cb0000000000000000fb0000000a0049006d0061006700650100000310000000cb0000000000000000fb0000000a0049006d0061006700650100000310000000cb0000000000000000fb0000000a0049006d00610067006501000002d9000001020000000000000000fb0000000a0049006d00610067006501000002c4000001170000000000000000fb0000000a0049006d00610067006501000002bf0000011c0000000000000000fb0000000a0049006d00610067006501000002d8000001030000000000000000fb0000000a0049006d00610067006501000002d5000001060000000000000000fb0000000a0049006d0061006700650100000310000000cb0000000000000000fb0000000a0049006d00610067006501000002ae0000012d0000000000000000fb0000000c00430061006d00650072006100000002c00000011b0000000000000000fb0000000a0049006d00610067006500000002b7000001240000000000000000fb0000000a0049006d00610067006500000002d300000108000000000000000000000001000001270000039efc0200000007fb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000000a0049006d006100670065010000003d000001760000000000000000fb0000000a0049006d00610067006501000001b9000001160000000000000000fb0000001200530065006c0065006300740069006f006e000000003d000002360000005c00fffffffb0000000a00560069006500770073000000027900000162000000a400fffffffb0000000a0049006d00610067006501000002c5000001160000000000000000fb0000001200530065006c0065006300740069006f006e010000025a000000b200000000000000000000000200000490000000a9fc0100000001fb0000000a00560069006500770073030000004e00000080000002e100000197000000030000073500000067fc0100000002fb0000000800540069006d00650000000000000007350000041800fffffffb0000000800540069006d00650100000000000004500000000000000000000005730000039e00000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
+  QMainWindow State: 000000ff00000000fd00000004000000000000016100000398fc020000000afb0000001200530065006c0065006300740069006f006e00000001e10000009b0000005c00fffffffb0000001e0054006f006f006c002000500072006f007000650072007400690065007302000001ed000001df00000185000000a3fb000000120056006900650077007300200054006f006f02000001df000002110000018500000122fb000000200054006f006f006c002000500072006f0070006500720074006900650073003203000002880000011d000002210000017afb000000100044006900730070006c00610079007301000000410000039800000000fffffffb0000002000730065006c0065006300740069006f006e00200062007500660066006500720200000138000000aa0000023a00000294fb00000014005700690064006500530074006500720065006f02000000e6000000d2000003ee0000030bfb0000000c004b0069006e0065006300740200000186000001060000030c00000261fb0000000a0049006d0061006700650000000041000001f60000000000000000fb0000000a00560069006500770073000000003d00000398000000a400ffffff000000010000010f00000398fc0200000003fb0000001e0054006f006f006c002000500072006f00700065007200740069006500730100000041000000780000000000000000fb0000000a00560069006500770073010000003d00000398000000a400fffffffb0000001200530065006c0065006300740069006f006e010000025a000000b200000000000000000000000200000490000000a9fc0100000001fb0000000a00560069006500770073030000004e00000080000002e10000019700000003000005000000003efc0100000002fb0000000800540069006d00650100000000000005000000025300fffffffb0000000800540069006d00650100000000000004500000000000000000000003980000039800000004000000040000000800000008fc0000000100000002000000010000000a0054006f006f006c00730100000000ffffffff0000000000000000
   Selection:
-    collapsed: true
+    collapsed: false
   Time:
     collapsed: false
   Tool Properties:
     collapsed: false
   Views:
-    collapsed: true
-  Width: 1754
+    collapsed: false
+  Width: 1280
   X: 72
   Y: 27

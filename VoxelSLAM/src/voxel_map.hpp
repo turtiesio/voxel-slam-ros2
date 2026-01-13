@@ -7,8 +7,7 @@
 #include <Eigen/Eigenvalues>
 #include <unordered_set>
 #include <mutex>
-
-#include <ros/ros.h>
+#include <chrono>
 #include <fstream>
 
 struct pointVar 
@@ -582,9 +581,9 @@ public:
     {
       if(is_calc_hess)
       {
-        double tm = ros::Time::now().toSec();
+        auto tm = std::chrono::high_resolution_clock::now();
         residual1 = divide_thread(x_stats, voxhess, imus_factor, Hess, JacT);
-        hesstime += ros::Time::now().toSec() - tm;
+        hesstime += std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - tm).count();
         *hess = Hess;
       }
       
@@ -610,11 +609,11 @@ public:
 
       double q1 = 0.5 * dxi.dot(u*D*dxi-JacT);
 
-      double tl1 = ros::Time::now().toSec();
+      auto tl1 = std::chrono::high_resolution_clock::now();
       residual2 = only_residual(x_stats_temp, voxhess, imus_factor);
-      double tl2 = ros::Time::now().toSec();
-      // printf("onlyresi: %lf\n", tl2-tl1);
-      resitime += tl2 - tl1;
+      auto tl2 = std::chrono::high_resolution_clock::now();
+      // printf("onlyresi: %lf\n", std::chrono::duration<double>(tl2-tl1).count());
+      resitime += std::chrono::duration<double>(tl2 - tl1).count();
 
       q = (residual1-residual2);
       // printf("iter%d: (%lf %lf) u: %lf v: %.1lf q: %.2lf %lf %lf\n", i, residual1, residual2, u, v, q/q1, q1, q);

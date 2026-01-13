@@ -1,44 +1,75 @@
-cmake_minimum_required(VERSION 3.0.2)
+cmake_minimum_required(VERSION 3.8)
 project(voxelslam_pointcloud2)
-find_package(catkin REQUIRED COMPONENTS rviz)
-catkin_package()
-include_directories(${catkin_INCLUDE_DIRS})
-link_directories(${catkin_LIBRARY_DIRS})
+
+# Check if RViz2 is available - skip build if not
+find_package(rviz_common QUIET)
+if(NOT rviz_common_FOUND)
+  message(STATUS "rviz_common not found - skipping ${PROJECT_NAME} build")
+  return()
+endif()
+
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
+
+find_package(ament_cmake REQUIRED)
+find_package(rviz_default_plugins REQUIRED)
+find_package(rviz_rendering REQUIRED)
+find_package(rviz_ogre_vendor REQUIRED)
+find_package(pluginlib REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(rclcpp REQUIRED)
+find_package(Qt5 REQUIRED COMPONENTS Core Widgets)
 
 set(CMAKE_AUTOMOC ON)
-
-if(rviz_QT_VERSION VERSION_LESS "5")
-  message(STATUS "Using Qt4 based on the rviz_QT_VERSION: ${rviz_QT_VERSION}")
-  find_package(Qt4 ${rviz_QT_VERSION} EXACT REQUIRED QtCore QtGui)
-  ## pull in all required include dirs, define QT_LIBRARIES, etc.
-  include(${QT_USE_FILE})
-else()
-  message(STATUS "Using Qt5 based on the rviz_QT_VERSION: ${rviz_QT_VERSION}")
-  find_package(Qt5 ${rviz_QT_VERSION} EXACT REQUIRED Core Widgets)
-  ## make target_link_libraries(${QT_LIBRARIES}) pull in all required dependencies
-  set(QT_LIBRARIES Qt5::Widgets)
-endif()
 
 set(SRC_FILES
   src/voxelslam_pc2.cpp
 )
 
-add_library(${PROJECT_NAME} ${SRC_FILES})
+add_library(${PROJECT_NAME} SHARED ${SRC_FILES})
 
-target_link_libraries(${PROJECT_NAME} ${QT_LIBRARIES} ${catkin_LIBRARIES})
-
-install(TARGETS
-  ${PROJECT_NAME}
-  ARCHIVE DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-  LIBRARY DESTINATION ${CATKIN_PACKAGE_LIB_DESTINATION}
-  RUNTIME DESTINATION ${CATKIN_PACKAGE_BIN_DESTINATION}
+target_include_directories(${PROJECT_NAME} PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/src>
+  $<INSTALL_INTERFACE:include>
 )
 
-install(FILES
-  plugin_description.xml
-  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION})
+target_link_libraries(${PROJECT_NAME} PUBLIC
+  Qt5::Core
+  Qt5::Widgets
+)
 
-install(DIRECTORY media/
-  DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/media)
+ament_target_dependencies(${PROJECT_NAME} PUBLIC
+  rviz_common
+  rviz_default_plugins
+  rviz_rendering
+  rviz_ogre_vendor
+  pluginlib
+  sensor_msgs
+  rclcpp
+)
 
+target_compile_definitions(${PROJECT_NAME} PRIVATE "VOXELSLAM_POINTCLOUD2_BUILDING_LIBRARY")
 
+pluginlib_export_plugin_description_file(rviz_common plugin_description.xml)
+
+install(TARGETS ${PROJECT_NAME}
+  EXPORT export_${PROJECT_NAME}
+  ARCHIVE DESTINATION lib
+  LIBRARY DESTINATION lib
+  RUNTIME DESTINATION bin
+)
+
+install(DIRECTORY icons/
+  DESTINATION share/${PROJECT_NAME}/icons
+)
+
+ament_export_targets(export_${PROJECT_NAME} HAS_LIBRARY_TARGET)
+ament_export_dependencies(
+  rviz_common
+  rviz_default_plugins
+  rviz_rendering
+  rviz_ogre_vendor
+)
+
+ament_package()

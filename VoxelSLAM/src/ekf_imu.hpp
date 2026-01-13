@@ -3,7 +3,13 @@
 
 #include "tools.hpp"
 #include <deque>
-#include <sensor_msgs/Imu.h>
+#include <sensor_msgs/msg/imu.hpp>
+#include <builtin_interfaces/msg/time.hpp>
+
+inline double get_imu_stamp_sec(const builtin_interfaces::msg::Time &stamp)
+{
+  return static_cast<double>(stamp.sec) + static_cast<double>(stamp.nanosec) * 1e-9;
+}
 
 class IMUEKF
 {
@@ -13,7 +19,7 @@ public:
   double pcl_beg_time, pcl_end_time, last_pcl_end_time;
   int init_num;
   Eigen::Vector3d mean_acc, mean_gyr;
-  sensor_msgs::Imu::Ptr last_imu;
+  sensor_msgs::msg::Imu::SharedPtr last_imu;
   int min_init_num = 30;
   Eigen::Vector3d angvel_last, acc_s_last;
 
@@ -26,7 +32,10 @@ public:
 
   double scale_gravity = 1.0;
   vector<IMUST> imu_poses;
-  string imu_topic = "/livox/imu";
+
+  // If true, IMU acceleration is in g units and needs to be multiplied by 9.81
+  // If false, IMU acceleration is already in m/s^2
+  bool acc_unit_is_g = false;
 
   int point_notime = 0;
 
@@ -38,7 +47,7 @@ public:
     angvel_last.setZero(); acc_s_last.setZero();
   }
 
-  void motion_blur(IMUST &xc, pcl::PointCloud<PointType> &pcl_in, deque<sensor_msgs::Imu::Ptr> &imus)
+  void motion_blur(IMUST &xc, pcl::PointCloud<PointType> &pcl_in, deque<sensor_msgs::msg::Imu::SharedPtr> &imus)
   {
     imus.push_front(last_imu);
 
@@ -58,16 +67,16 @@ public:
     double dt = 0;
     for(auto it_imu=imus.begin(); it_imu!=imus.end()-1; it_imu++)
     {
-      sensor_msgs::Imu &head = **(it_imu);
-      sensor_msgs::Imu &tail = **(it_imu+1);
+      sensor_msgs::msg::Imu &head = **(it_imu);
+      sensor_msgs::msg::Imu &tail = **(it_imu+1);
 
-      if(tail.header.stamp.toSec() < last_pcl_end_time) continue;
+      if(get_imu_stamp_sec(tail.header.stamp) < last_pcl_end_time) continue;
 
-      angvel_avr << 0.5*(head.angular_velocity.x + tail.angular_velocity.x), 
-                    0.5*(head.angular_velocity.y + tail.angular_velocity.y), 
+      angvel_avr << 0.5*(head.angular_velocity.x + tail.angular_velocity.x),
+                    0.5*(head.angular_velocity.y + tail.angular_velocity.y),
                     0.5*(head.angular_velocity.z + tail.angular_velocity.z);
-      acc_avr << 0.5*(head.linear_acceleration.x + tail.linear_acceleration.x), 
-                 0.5*(head.linear_acceleration.y + tail.linear_acceleration.y), 
+      acc_avr << 0.5*(head.linear_acceleration.x + tail.linear_acceleration.x),
+                 0.5*(head.linear_acceleration.y + tail.linear_acceleration.y),
                  0.5*(head.linear_acceleration.z + tail.linear_acceleration.z);
 
       angvel_avr -= xc.bg;
@@ -78,14 +87,14 @@ public:
       //   dt = tail.header.stamp.toSec() - last_pcl_end_time;
       // else
       //   dt = tail.header.stamp.toSec() - head.header.stamp.toSec();
-      double cur_time = head.header.stamp.toSec();
+      double cur_time = get_imu_stamp_sec(head.header.stamp);
       if(cur_time < last_pcl_end_time)
         cur_time = last_pcl_end_time;
-      dt = tail.header.stamp.toSec() - cur_time;
+      dt = get_imu_stamp_sec(tail.header.stamp) - cur_time;
 
       double offt = cur_time - pcl_beg_time;
       imu_poses.emplace_back(offt, R_imu, pos_imu, vel_imu, angvel_avr, acc_imu);
-      
+
       Eigen::Matrix3d acc_avr_skew = hat(acc_avr);
       Eigen::Matrix3d Exp_f = Exp(angvel_avr, dt);
 
@@ -114,7 +123,7 @@ public:
       // imu_poses.emplace_back(offt, R_imu, pos_imu, vel_imu, angvel_avr, acc_imu);
     }
 
-    double imu_end_time = imus.back()->header.stamp.toSec();
+    double imu_end_time = get_imu_stamp_sec(imus.back()->header.stamp);
     double note = pcl_end_time > imu_end_time ? 1.0 : -1.0;
     dt = note * (pcl_end_time - imu_end_time);
     xc.v = vel_imu + note * acc_imu * dt;
@@ -122,10 +131,12 @@ public:
     xc.p = pos_imu + note * vel_imu * dt + note * 0.5 * acc_imu * dt * dt;
     xc.t = pcl_end_time;
 
-    sensor_msgs::ImuPtr imu1(new sensor_msgs::Imu(*imus.front()));
-    sensor_msgs::ImuPtr imu2(new sensor_msgs::Imu(*imus.back()));
-    imu1->header.stamp.fromSec(last_pcl_end_time);
-    imu2->header.stamp.fromSec(pcl_end_time);
+    auto imu1 = std::make_shared<sensor_msgs::msg::Imu>(*imus.front());
+    auto imu2 = std::make_shared<sensor_msgs::msg::Imu>(*imus.back());
+    imu1->header.stamp.sec = static_cast<int32_t>(last_pcl_end_time);
+    imu1->header.stamp.nanosec = static_cast<uint32_t>((last_pcl_end_time - static_cast<int32_t>(last_pcl_end_time)) * 1e9);
+    imu2->header.stamp.sec = static_cast<int32_t>(pcl_end_time);
+    imu2->header.stamp.nanosec = static_cast<uint32_t>((pcl_end_time - static_cast<int32_t>(pcl_end_time)) * 1e9);
     // imus.pop_front();
     last_imu = imus.back();
     last_pcl_end_time = pcl_end_time;
@@ -164,10 +175,10 @@ public:
 
   }
 
-  void IMU_init(deque<sensor_msgs::Imu::Ptr> &imus)
+  void IMU_init(deque<sensor_msgs::msg::Imu::SharedPtr> &imus)
   {
     Eigen::Vector3d cur_acc, cur_gyr;
-    for(sensor_msgs::Imu::Ptr imu: imus)
+    for(sensor_msgs::msg::Imu::SharedPtr imu: imus)
     {
       cur_acc << imu->linear_acceleration.x,
                  imu->linear_acceleration.y,
@@ -178,7 +189,7 @@ public:
 
       if(init_num != 0)
       {
-        mean_acc += (cur_acc - mean_acc) / init_num; 
+        mean_acc += (cur_acc - mean_acc) / init_num;
         mean_gyr += (cur_gyr - mean_gyr) / init_num;
       }
       else
@@ -187,21 +198,22 @@ public:
         mean_gyr = cur_gyr;
         init_num = 1;
       }
-      
+
       init_num++;
     }
 
     last_imu = imus.back();
   }
 
-  int process(IMUST &x_curr, pcl::PointCloud<PointType> &pcl_in, deque<sensor_msgs::Imu::Ptr> &imus)
+  int process(IMUST &x_curr, pcl::PointCloud<PointType> &pcl_in, deque<sensor_msgs::msg::Imu::SharedPtr> &imus)
   {
     if(!init_flag)
     {
       IMU_init(imus);
-      if(mean_acc.norm() < 2 && imu_topic == "/livox/imu")
+      // If IMU acceleration is in g units, convert to m/s^2
+      if(acc_unit_is_g)
         scale_gravity = G_m_s2;
-      printf("scale_gravity: %lf %lf %d\n", scale_gravity, mean_acc.norm(), init_num);
+      printf("scale_gravity: %lf mean_acc_norm: %lf init_num: %d\n", scale_gravity, mean_acc.norm(), init_num);
       x_curr.g = -mean_acc * scale_gravity;
       if(init_num > min_init_num) init_flag = true;
       last_pcl_end_time = pcl_end_time;
@@ -216,4 +228,3 @@ public:
 };
 
 #endif
-

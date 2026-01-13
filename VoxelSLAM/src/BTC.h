@@ -8,13 +8,10 @@
 #include <mutex>
 #include <pcl/common/io.h>
 #include <pcl/kdtree/kdtree_flann.h>
-#include <ros/ros.h>
 #include <sstream>
 #include <stdio.h>
 #include <string>
 #include <unordered_map>
-#include <visualization_msgs/Marker.h>
-#include <visualization_msgs/MarkerArray.h>
 
 #define HASH_P 116101
 #define MAX_N 10000000000
@@ -212,7 +209,7 @@ bool plane_greater_sort(BTCPlane *plane1, BTCPlane *plane2);
 // double
 // calc_triangle_dis(const std::vector<std::pair<STD, STD>> &match_std_list);
 
-void read_parameters(ros::NodeHandle &nh, ConfigSetting &config_setting, int isHighFly);
+void read_parameters(ConfigSetting &config_setting, int isHighFly);
 
 Eigen::Vector3d normal2vec(const pcl::PointXYZINormal &pi);
 

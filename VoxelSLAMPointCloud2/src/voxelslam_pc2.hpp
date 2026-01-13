@@ -30,19 +30,22 @@
 #ifndef VOXELSLAM_PC2_H
 #define VOXELSLAM_PC2_H
 
-#include <sensor_msgs/PointCloud2.h>
+#include <sensor_msgs/msg/point_cloud2.hpp>
 
-#include <rviz/message_filter_display.h>
+#include <rviz_common/message_filter_display.hpp>
+#include <rviz_default_plugins/displays/pointcloud/point_cloud_common.hpp>
 
-namespace rviz
+namespace rviz_common
+{
+namespace properties
 {
 class IntProperty;
-class PointCloudCommon;
+}
 }
 
 /**
  * \class PointCloud2Display
- * \brief Displays a point cloud of type sensor_msgs::PointCloud2
+ * \brief Displays a point cloud of type sensor_msgs::msg::PointCloud2
  *
  * By default it will assume channel 0 of the cloud is an intensity value, and will color them by
  * intensity.
@@ -53,7 +56,7 @@ class PointCloudCommon;
 namespace voxelslam_pointcloud2
 {
 
-class PointCloud2Display : public rviz::MessageFilterDisplay<sensor_msgs::PointCloud2>
+class PointCloud2Display : public rviz_common::MessageFilterDisplay<sensor_msgs::msg::PointCloud2>
 {
   Q_OBJECT
 public:
@@ -69,11 +72,11 @@ protected:
   void onInitialize() override;
 
   /** @brief Process a single message.  Overridden from MessageFilterDisplay. */
-  void processMessage(const sensor_msgs::PointCloud2ConstPtr& cloud) override;
+  void processMessage(sensor_msgs::msg::PointCloud2::ConstSharedPtr cloud) override;
 
-  rviz::PointCloudCommon* point_cloud_common_;
+  std::unique_ptr<rviz_default_plugins::PointCloudCommon> point_cloud_common_;
 };
 
-} // namespace rviz
+} // namespace voxelslam_pointcloud2
 
 #endif
