@@ -93,14 +93,14 @@ POINT_CLOUD_REGISTER_POINT_STRUCT(rslidar_ros::Point,
     (double, timestamp, timestamp)
 )
 
-// dw_livox_driver PointCloud2 format
+// dw_livox_driver PointCloud2 format (livox_ros_driver2 compatible)
 namespace livox_pc2_ros {
   struct EIGEN_ALIGN16 Point {
       PCL_ADD_POINT4D;
       float intensity;
       std::uint8_t tag;
       std::uint8_t line;
-      double timestamp;  // Absolute time in nanoseconds
+      double timestamp;  // Offset time in nanoseconds (relative to header.stamp)
       EIGEN_MAKE_ALIGNED_OPERATOR_NEW
   };
 }
@@ -467,9 +467,9 @@ public:
 
   void livox_pc2_handler(const sensor_msgs::msg::PointCloud2::SharedPtr &msg, pcl::PointCloud<PointType> &pl_full)
   {
-    // dw_livox_driver PointCloud2 format:
+    // dw_livox_driver PointCloud2 format (livox_ros_driver2 compatible):
     // x(f32) y(f32) z(f32) intensity(f32) tag(u8) line(u8) timestamp(f64)
-    // timestamp is absolute time in nanoseconds
+    // timestamp is offset time in nanoseconds (relative to header.stamp)
 
     pcl::PointCloud<livox_pc2_ros::Point> pl_orig;
     pcl::fromROSMsg(*msg, pl_orig);
@@ -477,9 +477,6 @@ public:
     int plsize = pl_orig.size();
     if(plsize == 0) return;
     pl_full.reserve(plsize);
-
-    // Get first point timestamp as base for offset calculation
-    double base_time = pl_orig[0].timestamp;
 
     for(int i=0; i<plsize; i++)
     {
@@ -491,8 +488,8 @@ public:
       ap.z = iter.z;
       ap.intensity = iter.intensity;
 
-      // Convert absolute timestamp (ns) to relative offset (seconds)
-      ap.curvature = (iter.timestamp - base_time) / 1e9;
+      // timestamp is already offset in ns, convert to seconds
+      ap.curvature = iter.timestamp / 1e9;
 
       if(i % point_filter_num == 0)
       {

@@ -3,10 +3,10 @@
     General:
       lid_topic: "/sensor/lidar/main/points"
       imu_topic: "/sensor/lidar/main/imu"
-      imu_acc_unit_is_g: true
+      imu_acc_unit_is_g: false
       save_path: "/home/zale/save_datas/"
       previous_map: ""
-      bagname: "mid360_dw_init"
+      bagname: ""
       lidar_type: 7  # LIVOX_PC2 (Livox PointCloud2 format with timestamp field)
       blind: 0.5
       point_filter_num: 3
