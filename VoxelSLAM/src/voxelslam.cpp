@@ -2,16 +2,13 @@
 #include <chrono>
 #include <pcl/filters/voxel_grid.h>
 #include <pcl/filters/approximate_voxel_grid.h>
-#include <tf2_ros/buffer.h>
-#include <tf2_ros/transform_listener.h>
+#include <pcl/filters/passthrough.h>
 
 using namespace std;
 
 // Global node pointer definition
 rclcpp::Node::SharedPtr g_node = nullptr;
 std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster = nullptr;
-std::shared_ptr<tf2_ros::Buffer> tf_buffer = nullptr;
-std::shared_ptr<tf2_ros::TransformListener> tf_listener = nullptr;
 
 class ResultOutput
 {
@@ -22,71 +19,88 @@ public:
     return inst;
   }
 
-  // map → odom transform (updated on relocalization)
-  Eigen::Quaterniond q_map_odom = Eigen::Quaterniond::Identity();
-  Eigen::Vector3d t_map_odom = Eigen::Vector3d::Zero();
+  // map → camera_init transform (set on first relocalization)
+  Eigen::Matrix3d R_map_cam = Eigen::Matrix3d::Identity();
+  Eigen::Vector3d t_map_cam = Eigen::Vector3d::Zero();
+  bool relocalized = false;
 
   void pub_odom_func(IMUST &xc)
   {
     auto now = g_node->now();
 
-    // VoxelSLAM pose: map → base_footprint
-    Eigen::Quaterniond q_map_base(xc.R);
-    Eigen::Vector3d t_map_base = xc.p;
+    Eigen::Matrix3d R_pose;
+    Eigen::Vector3d t_pose;
 
-    // Lookup EKF pose: odom → base_footprint
-    try {
-      auto tf_odom_base = tf_buffer->lookupTransform("odom", "base_footprint", tf2::TimePointZero);
-
-      // Extract odom → base transform
-      Eigen::Quaterniond q_odom_base(
-        tf_odom_base.transform.rotation.w,
-        tf_odom_base.transform.rotation.x,
-        tf_odom_base.transform.rotation.y,
-        tf_odom_base.transform.rotation.z);
-      Eigen::Vector3d t_odom_base(
-        tf_odom_base.transform.translation.x,
-        tf_odom_base.transform.translation.y,
-        tf_odom_base.transform.translation.z);
-
-      // Compute map → odom = (map → base) * (odom → base)^(-1)
-      // T_map_odom = T_map_base * T_base_odom
-      Eigen::Quaterniond q_base_odom = q_odom_base.inverse();
-      Eigen::Vector3d t_base_odom = -(q_base_odom * t_odom_base);
-
-      q_map_odom = q_map_base * q_base_odom;
-      t_map_odom = q_map_base * t_base_odom + t_map_base;
-
-    } catch (tf2::TransformException &ex) {
-      // If EKF TF not available yet, use identity (first few frames)
-      static bool warned = false;
-      if (!warned) {
-        RCLCPP_WARN(g_node->get_logger(), "Waiting for EKF TF (odom→base_footprint): %s", ex.what());
-        warned = true;
-      }
+    if (relocalized) {
+      // After relocalization: transform to map coordinate
+      // T_map_aft = T_map_cam * T_cam_aft
+      R_pose = R_map_cam * xc.R;
+      t_pose = R_map_cam * xc.p + t_map_cam;
+    } else {
+      // Before relocalization: use camera_init coordinate
+      R_pose = xc.R;
+      t_pose = xc.p;
     }
 
-    // Publish map → odom
-    geometry_msgs::msg::TransformStamped tf_map_odom;
-    tf_map_odom.header.stamp = now;
-    tf_map_odom.header.frame_id = "map";
-    tf_map_odom.child_frame_id = "odom";
-    tf_map_odom.transform.translation.x = t_map_odom.x();
-    tf_map_odom.transform.translation.y = t_map_odom.y();
-    tf_map_odom.transform.translation.z = t_map_odom.z();
-    tf_map_odom.transform.rotation.w = q_map_odom.w();
-    tf_map_odom.transform.rotation.x = q_map_odom.x();
-    tf_map_odom.transform.rotation.y = q_map_odom.y();
-    tf_map_odom.transform.rotation.z = q_map_odom.z();
+    Eigen::Quaterniond q_pose(R_pose);
 
-    tf_broadcaster->sendTransform(tf_map_odom);
+    // Publish camera_init → aft_mapped (in map coordinate after relocalization)
+    geometry_msgs::msg::TransformStamped tf_msg;
+    tf_msg.header.stamp = now;
+    tf_msg.header.frame_id = "camera_init";
+    tf_msg.child_frame_id = "aft_mapped";
+    tf_msg.transform.translation.x = t_pose.x();
+    tf_msg.transform.translation.y = t_pose.y();
+    tf_msg.transform.translation.z = t_pose.z();
+    tf_msg.transform.rotation.w = q_pose.w();
+    tf_msg.transform.rotation.x = q_pose.x();
+    tf_msg.transform.rotation.y = q_pose.y();
+    tf_msg.transform.rotation.z = q_pose.z();
+
+    tf_broadcaster->sendTransform(tf_msg);
   }
 
-  void set_map_odom_transform(const Eigen::Matrix3d &R, const Eigen::Vector3d &t)
+  void set_map_origin(const Eigen::Matrix3d &R_map_base, const Eigen::Vector3d &t_map_base,
+                      const Eigen::Matrix3d &R_cam_aft, const Eigen::Vector3d &t_cam_aft)
   {
-    q_map_odom = Eigen::Quaterniond(R);
-    t_map_odom = t;
-    RCLCPP_INFO(g_node->get_logger(), "map→odom transform updated: t=(%.2f, %.2f, %.2f)", t.x(), t.y(), t.z());
+    // if (relocalized) {
+    //   RCLCPP_DEBUG(g_node->get_logger(), "Already relocalized, ignoring");
+    //   return;
+    // }
+
+    // Compute map → camera_init from:
+    // T_map_base = T_map_cam * T_cam_aft (assuming aft_mapped ≈ base)
+    // T_map_cam = T_map_base * T_cam_aft^(-1)
+    Eigen::Matrix3d R_aft_cam = R_cam_aft.transpose();
+    Eigen::Vector3d t_aft_cam = -R_aft_cam * t_cam_aft;
+
+    R_map_cam = R_map_base * R_aft_cam;
+    t_map_cam = R_map_base * t_aft_cam + t_map_base;
+
+    if (!relocalized) {
+      RCLCPP_INFO(g_node->get_logger(), "Relocalized: camera_init fixed to map origin (offset: %.2f, %.2f, %.2f)",
+                  t_map_cam.x(), t_map_cam.y(), t_map_cam.z());
+    }
+
+    relocalized = true;
+
+    // Immediately publish transformed TF (aft_mapped jumps to map coordinate)
+    Eigen::Quaterniond q_pose(R_map_base);
+    geometry_msgs::msg::TransformStamped tf_msg;
+    tf_msg.header.stamp = g_node->now();
+    tf_msg.header.frame_id = "camera_init";
+    tf_msg.child_frame_id = "aft_mapped";
+    tf_msg.transform.translation.x = t_map_base.x();
+    tf_msg.transform.translation.y = t_map_base.y();
+    tf_msg.transform.translation.z = t_map_base.z();
+    tf_msg.transform.rotation.w = q_pose.w();
+    tf_msg.transform.rotation.x = q_pose.x();
+    tf_msg.transform.rotation.y = q_pose.y();
+    tf_msg.transform.rotation.z = q_pose.z();
+    tf_broadcaster->sendTransform(tf_msg);
+
+    // Publish relocalized event
+    ::pub_relocalized->publish(std_msgs::msg::Empty());
   }
 
   void pub_localtraj(PLV(3) &pwld, double jour, IMUST &x_curr, int cur_session, pcl::PointCloud<PointType> &pcl_path)
@@ -251,61 +265,6 @@ public:
     }
     posfile.close();
 
-  }
-
-  void save_merged_pcd(vector<ScanPose*> &poses, string &fname, string &savepath, double leaf_size)
-  {
-    if(poses.size() < 10)
-    {
-      RCLCPP_WARN(rclcpp::get_logger("voxelslam"), "Too few scans (%zu) to create merged PCD", poses.size());
-      return;
-    }
-
-    RCLCPP_INFO(rclcpp::get_logger("voxelslam"), "Creating merged PCD from %zu scans...", poses.size());
-
-    pcl::PointCloud<pcl::PointXYZI>::Ptr merged(new pcl::PointCloud<pcl::PointXYZI>());
-
-    for(size_t i = 0; i < poses.size(); i++)
-    {
-      string pcdname = savepath + fname + "/" + to_string(i) + ".pcd";
-      pcl::PointCloud<pcl::PointXYZI> scan;
-
-      if(pcl::io::loadPCDFile(pcdname, scan) == -1)
-      {
-        RCLCPP_WARN(rclcpp::get_logger("voxelslam"), "Failed to load %s, skipping", pcdname.c_str());
-        continue;
-      }
-
-      IMUST &xx = poses[i]->x;
-      for(auto &p : scan.points)
-      {
-        Eigen::Vector3d pt(p.x, p.y, p.z);
-        pt = xx.R * pt + xx.p;
-        p.x = pt[0]; p.y = pt[1]; p.z = pt[2];
-      }
-
-      *merged += scan;
-
-      if((i + 1) % 100 == 0)
-        RCLCPP_INFO(rclcpp::get_logger("voxelslam"), "Processed %zu/%zu scans", i + 1, poses.size());
-    }
-
-    RCLCPP_INFO(rclcpp::get_logger("voxelslam"), "Total points before downsampling: %zu", merged->size());
-
-    if(leaf_size > 0)
-    {
-      pcl::PointCloud<pcl::PointXYZI>::Ptr filtered(new pcl::PointCloud<pcl::PointXYZI>());
-      pcl::VoxelGrid<pcl::PointXYZI> vg;
-      vg.setInputCloud(merged);
-      vg.setLeafSize(leaf_size, leaf_size, leaf_size);
-      vg.filter(*filtered);
-      merged = filtered;
-      RCLCPP_INFO(rclcpp::get_logger("voxelslam"), "Total points after downsampling (leaf=%.2f): %zu", leaf_size, merged->size());
-    }
-
-    string outname = savepath + fname + "_merged.pcd";
-    pcl::io::savePCDFileBinary(outname, *merged);
-    RCLCPP_INFO(rclcpp::get_logger("voxelslam"), "Saved merged PCD: %s", outname.c_str());
   }
 
   // The loop clousure edges of multi sessions
@@ -874,7 +833,6 @@ public:
   vector<string> sessionNames;
   string bagname, savepath;
   int is_save_map;
-  double export_pcd_resolution;
 
   VOXEL_SLAM(rclcpp::Node::SharedPtr &n)
   {
@@ -895,7 +853,6 @@ public:
     n->declare_parameter<std::vector<double>>("General.extrinsic_tran", std::vector<double>{0.0, 0.0, 0.0});
     n->declare_parameter<std::vector<double>>("General.extrinsic_rota", std::vector<double>{1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0});
     n->declare_parameter<int>("General.is_save_map", 0);
-    n->declare_parameter<double>("General.export_pcd_resolution", 0.1);
 
     lid_topic = n->get_parameter("General.lid_topic").as_string();
     imu_topic = n->get_parameter("General.imu_topic").as_string();
@@ -907,7 +864,6 @@ public:
     vecT = n->get_parameter("General.extrinsic_tran").as_double_array();
     vecR = n->get_parameter("General.extrinsic_rota").as_double_array();
     is_save_map = n->get_parameter("General.is_save_map").as_int();
-    export_pcd_resolution = n->get_parameter("General.export_pcd_resolution").as_double();
 
     auto imu_qos = rclcpp::SensorDataQoS().keep_last(2000);   // ~5s at 400Hz
     auto pcl_qos = rclcpp::SensorDataQoS().keep_last(20);     // ~2s at 10Hz
@@ -2247,21 +2203,14 @@ public:
               match_num++;
               lp_edges.push(id, cur_id, ord_bl, buf_base-1, loop_transform.second, loop_transform.first, v6_init);
 
-              // Update map → odom transform on cross-session loop closure
+              // Set map origin on first cross-session loop closure
               if(id != cur_id)
               {
                 // T_map_base = matched keyframe pose transformed by loop_transform
                 Eigen::Matrix3d R_map_base = xx.R * loop_transform.second;
                 Eigen::Vector3d t_map_base = xx.R * loop_transform.first + xx.p;
-                // T_odom_base = current pose
-                Eigen::Matrix3d R_odom_base = xc.R;
-                Eigen::Vector3d t_odom_base = xc.p;
-                // T_map_odom = T_map_base * T_odom_base^(-1)
-                Eigen::Matrix3d R_odom_base_inv = R_odom_base.transpose();
-                Eigen::Vector3d t_odom_base_inv = -R_odom_base_inv * t_odom_base;
-                Eigen::Matrix3d R_map_odom = R_map_base * R_odom_base_inv;
-                Eigen::Vector3d t_map_odom = R_map_base * t_odom_base_inv + t_map_base;
-                ResultOutput::instance().set_map_odom_transform(R_map_odom, t_map_odom);
+                // Current pose in camera_init frame
+                ResultOutput::instance().set_map_origin(R_map_base, t_map_base, xc.R, xc.p);
               }
 
               if(step > -1)
@@ -2417,7 +2366,6 @@ public:
       for(int i=0; i<ids.size(); i++)
       {
         FileReaderWriter::instance().save_pose(*(multimap_scanPoses[ids[i]]), sessionNames[ids[i]], "/alidarState.txt", savepath);
-        FileReaderWriter::instance().save_merged_pcd(*(multimap_scanPoses[ids[i]]), sessionNames[ids[i]], savepath, export_pcd_resolution);
       }
 
       FileReaderWriter::instance().pgo_edges_io(lp_edges, sessionNames, 1, savepath, bagname);
@@ -2823,22 +2771,8 @@ int main(int argc, char **argv)
   options.allow_undeclared_parameters(true);
   g_node = std::make_shared<rclcpp::Node>("voxel_slam", options);
 
-  // Initialize TF broadcaster and listener
+  // Initialize TF broadcaster
   tf_broadcaster = std::make_unique<tf2_ros::TransformBroadcaster>(g_node);
-  tf_buffer = std::make_shared<tf2_ros::Buffer>(g_node->get_clock());
-  tf_listener = std::make_shared<tf2_ros::TransformListener>(*tf_buffer);
-
-  // Publish initial identity TF (map → odom) so Nav2 can start immediately
-  // This will be continuously updated by pub_odom_func once odometry starts
-  {
-    geometry_msgs::msg::TransformStamped tf_init;
-    tf_init.header.stamp = g_node->now();
-    tf_init.header.frame_id = "map";
-    tf_init.child_frame_id = "odom";
-    tf_init.transform.rotation.w = 1.0;
-    tf_broadcaster->sendTransform(tf_init);
-    RCLCPP_INFO(g_node->get_logger(), "Published initial map→odom identity transform");
-  }
 
   // Create publishers
   pub_cmap = g_node->create_publisher<sensor_msgs::msg::PointCloud2>("/map_cmap", 100);
@@ -2853,6 +2787,11 @@ int main(int argc, char **argv)
   pub_test = g_node->create_publisher<sensor_msgs::msg::PointCloud2>("/map_test", 100);
   pub_curr_path = g_node->create_publisher<sensor_msgs::msg::PointCloud2>("/map_path", 100);
   pub_prev_path = g_node->create_publisher<sensor_msgs::msg::PointCloud2>("/map_true", 100);
+
+  // Relocalized event publisher (transient_local for late subscribers)
+  rclcpp::QoS relocalized_qos(1);
+  relocalized_qos.transient_local().reliable();
+  pub_relocalized = g_node->create_publisher<std_msgs::msg::Empty>("/slam/relocalized", relocalized_qos);
 
   VOXEL_SLAM vs(g_node);
   mp = new int[vs.win_size];

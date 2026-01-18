@@ -16,7 +16,6 @@
       extrinsic_tran: [0.04165, 0.02326, -0.0284]
       extrinsic_rota: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0]
       is_save_map: 0
-      export_pcd_resolution: 0.1  # Voxel size for merged PCD export (0 = no downsampling)
 
     Odometry:
       cov_gyr: 0.01

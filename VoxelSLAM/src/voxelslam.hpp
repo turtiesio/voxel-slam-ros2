@@ -10,6 +10,7 @@
 #include <rclcpp/rclcpp.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 #include <geometry_msgs/msg/transform_stamped.hpp>
+#include <std_msgs/msg/empty.hpp>
 #include <visualization_msgs/msg/marker_array.hpp>
 #include <malloc.h>
 #include <geometry_msgs/msg/pose_array.hpp>
@@ -37,6 +38,7 @@ rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_pmap;
 rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_test;
 rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_prev_path;
 rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::SharedPtr pub_curr_path;
+rclcpp::Publisher<std_msgs::msg::Empty>::SharedPtr pub_relocalized;
 
 rclcpp::Subscription<sensor_msgs::msg::Imu>::SharedPtr sub_imu;
 rclcpp::SubscriptionBase::SharedPtr sub_pcl;
@@ -47,7 +49,7 @@ void pub_pl_func(T &pl, rclcpp::Publisher<sensor_msgs::msg::PointCloud2>::Shared
   pl.height = 1; pl.width = pl.size();
   sensor_msgs::msg::PointCloud2 output;
   pcl::toROSMsg(pl, output);
-  output.header.frame_id = "map";
+  output.header.frame_id = "camera_init";
   output.header.stamp = g_node->now();
   pub->publish(output);
 }

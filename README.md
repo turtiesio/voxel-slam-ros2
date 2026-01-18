@@ -223,7 +223,7 @@ When `is_save_map: 1` is enabled, VoxelSLAM automatically exports a single merge
 ```yaml
 General:
   is_save_map: 1                    # Enable map saving
-  export_pcd_resolution: 0.1        # Voxel downsampling size (meters), 0 = no downsampling
+  export_pcd_resolution: 0.01        # Voxel downsampling size (meters), 0 = no downsampling
 ```
 
 **Output location:**
